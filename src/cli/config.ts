@@ -9,7 +9,7 @@ const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json')
 
 const DEFAULT_CONFIG: SkilltapConfigFile = {
   sources: [],
-  installDir: path.join(os.homedir(), '.claude', 'skills'),
+  installDir: path.join(os.homedir(), '.agents', 'skills'),
 }
 
 export async function loadConfig(): Promise<SkilltapConfigFile> {

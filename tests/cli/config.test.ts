@@ -39,7 +39,7 @@ describe('loadConfig', () => {
     const config = await loadConfig()
 
     expect(config.sources).toEqual(['org/skills'])
-    expect(config.installDir).toBe('/mock-home/.claude/skills')
+    expect(config.installDir).toBe('/mock-home/.agents/skills')
   })
 
   it('returns default config when file does not exist', async () => {
@@ -48,7 +48,7 @@ describe('loadConfig', () => {
     const config = await loadConfig()
 
     expect(config.sources).toEqual([])
-    expect(config.installDir).toBe('/mock-home/.claude/skills')
+    expect(config.installDir).toBe('/mock-home/.agents/skills')
   })
 
   it('returns default config when file has invalid JSON', async () => {
@@ -62,7 +62,7 @@ describe('loadConfig', () => {
 
 describe('saveConfig', () => {
   it('creates config directory and writes JSON', async () => {
-    const config = { sources: ['org/skills'], installDir: '/mock-home/.claude/skills' }
+    const config = { sources: ['org/skills'], installDir: '/mock-home/.agents/skills' }
 
     await saveConfig(config)
 

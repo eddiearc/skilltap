@@ -5,7 +5,7 @@ import os from 'node:os'
 import type { TapSource, InstalledSkill } from './types.js'
 import { downloadSkillDir, downloadFile, getSkillMd, parseFrontmatter } from './github.js'
 
-const DEFAULT_INSTALL_DIR = path.join(os.homedir(), '.claude', 'skills')
+const DEFAULT_INSTALL_DIR = path.join(os.homedir(), '.agents', 'skills')
 
 /** Ensure install directory exists */
 async function ensureDir(dir: string): Promise<void> {

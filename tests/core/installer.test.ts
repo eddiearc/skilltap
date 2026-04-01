@@ -105,8 +105,8 @@ describe('installSkill', () => {
 
     const result = await installSkill(source, 'pdf')
 
-    expect(fs.mkdir).toHaveBeenCalledWith('/mock-home/.claude/skills/pdf', { recursive: true })
-    expect(result.path).toBe('/mock-home/.claude/skills/pdf')
+    expect(fs.mkdir).toHaveBeenCalledWith('/mock-home/.agents/skills/pdf', { recursive: true })
+    expect(result.path).toBe('/mock-home/.agents/skills/pdf')
   })
 
   it('creates symlinks in other agent directories', async () => {
@@ -147,7 +147,7 @@ describe('uninstallSkill', () => {
   it('uses default installDir', async () => {
     await uninstallSkill('pdf')
 
-    expect(fs.rm).toHaveBeenCalledWith('/mock-home/.claude/skills/pdf', { recursive: true, force: true })
+    expect(fs.rm).toHaveBeenCalledWith('/mock-home/.agents/skills/pdf', { recursive: true, force: true })
   })
 
   it('removes symlinks from other agent directories', async () => {
