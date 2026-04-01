@@ -2,6 +2,7 @@ import { Command } from 'commander'
 import { Skilltap } from '../core/client.js'
 import { AGENTS, detectInstalledAgents, resolveAgentDirs } from '../core/agents.js'
 import { loadConfig, saveConfig } from './config.js'
+import { SkillConflictError } from '../core/types.js'
 import type { SkilltapConfigFile } from '../core/types.js'
 
 const program = new Command()
@@ -76,31 +77,44 @@ program
   .option('-g, --global', 'Symlink to all detected agents')
   .option('-a, --agent <ids...>', 'Symlink to specific agent(s) (e.g. claude-code cursor)')
   .option('-d, --dir <paths...>', 'Symlink to custom directory(s)')
-  .action(async (name: string, opts: { global?: boolean; agent?: string[]; dir?: string[] }) => {
+  .option('--from <source>', 'Install from a specific source (e.g. anthropics/skills)')
+  .action(async (name: string, opts: { global?: boolean; agent?: string[]; dir?: string[]; from?: string }) => {
     const config = await loadConfig()
     await resolveAgentOpts(config, opts)
 
     const st = new Skilltap(config)
-    const skill = await st.install(name)
-    console.log(`Installed: ${skill.name} → ${skill.path}`)
 
-    // Show symlink results
-    const allDirs: string[] = []
-    if (config.agents?.length) allDirs.push(...resolveAgentDirs(config.agents))
-    if (config.dirs?.length) allDirs.push(...config.dirs)
-    const linked = allDirs.filter((d) => d !== config.installDir)
+    try {
+      const skill = await st.install(name, { from: opts.from })
+      console.log(`Installed: ${skill.name} → ${skill.path}`)
 
-    if (linked.length > 0) {
-      console.log(`Symlinked to ${linked.length} target(s):`)
-      for (const dir of linked) {
-        console.log(`  → ${dir}/${name}`)
+      // Show symlink results
+      const allDirs: string[] = []
+      if (config.agents?.length) allDirs.push(...resolveAgentDirs(config.agents))
+      if (config.dirs?.length) allDirs.push(...config.dirs)
+      const linked = allDirs.filter((d) => d !== config.installDir)
+
+      if (linked.length > 0) {
+        console.log(`Symlinked to ${linked.length} target(s):`)
+        for (const dir of linked) {
+          console.log(`  → ${dir}/${name}`)
+        }
+      } else {
+        console.log('')
+        console.log('Tip: use -g to symlink to all agents, or -a to pick specific ones:')
+        console.log('  skilltap install <name> -g')
+        console.log('  skilltap install <name> -a claude-code cursor')
       }
-    } else {
-      // No agents specified — show tip
-      console.log('')
-      console.log('Tip: use -g to symlink to all agents, or -a to pick specific ones:')
-      console.log('  skilltap install <name> -g')
-      console.log('  skilltap install <name> -a claude-code cursor')
+    } catch (err) {
+      if (err instanceof SkillConflictError) {
+        console.error(`Multiple skills found for "${name}":`)
+        for (const source of err.sources) {
+          console.error(`  - ${source}`)
+        }
+        console.error(`\nUse --from to specify: skilltap install ${name} --from <owner/repo>`)
+        process.exit(1)
+      }
+      throw err
     }
   })
 

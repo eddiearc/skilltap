@@ -171,6 +171,35 @@ describe('install', () => {
 
     await expect(st.install('nonexistent')).rejects.toThrow('not found in any source')
   })
+
+  it('throws SkillConflictError when multiple sources have the same skill', async () => {
+    vi.mocked(getSkillMd).mockResolvedValue('skill content') // both sources have it
+
+    const st = new Skilltap({ sources: ['org1/skills', 'org2/skills'] })
+
+    await expect(st.install('pdf')).rejects.toThrow('Multiple skills found for "pdf"')
+    await expect(st.install('pdf')).rejects.toThrow('org1/skills')
+    await expect(st.install('pdf')).rejects.toThrow('org2/skills')
+  })
+
+  it('installs from specified source with { from } option', async () => {
+    vi.mocked(installSkill).mockResolvedValue({
+      name: 'pdf',
+      meta: { name: 'pdf', description: 'PDF skill' },
+      path: '/skills/pdf',
+      source: { owner: 'org2', repo: 'skills' },
+    })
+
+    const st = new Skilltap({ sources: ['org1/skills', 'org2/skills'] })
+    const result = await st.install('pdf', { from: 'org2/skills' })
+
+    expect(result.name).toBe('pdf')
+    expect(installSkill).toHaveBeenCalledWith(
+      { owner: 'org2', repo: 'skills' }, 'pdf', undefined, undefined, undefined,
+    )
+    // getSkillMd should NOT be called — skips conflict detection
+    expect(getSkillMd).not.toHaveBeenCalled()
+  })
 })
 
 // --- uninstall ---

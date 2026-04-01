@@ -45,6 +45,18 @@ export interface SkilltapConfig {
   dirs?: string[]
 }
 
+/** Error thrown when multiple sources have the same skill name */
+export class SkillConflictError extends Error {
+  constructor(
+    public skillName: string,
+    public sources: string[],
+  ) {
+    const list = sources.map((s) => `  - ${s}`).join('\n')
+    super(`Multiple skills found for "${skillName}":\n${list}\nUse --from <owner/repo> to specify.`)
+    this.name = 'SkillConflictError'
+  }
+}
+
 /** Skilltap config file stored at ~/.skilltap/config.json */
 export interface SkilltapConfigFile {
   sources: string[]

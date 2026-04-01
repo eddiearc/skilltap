@@ -4,6 +4,7 @@ import type {
   RemoteSkill,
   InstalledSkill,
 } from './types.js'
+import { SkillConflictError } from './types.js'
 import { parseSource, listRepoDirs, getSkillMd, parseFrontmatter } from './github.js'
 import { installSkill, uninstallSkill, listInstalled } from './installer.js'
 import { resolveAgentDirs } from './agents.js'
@@ -64,15 +65,33 @@ export class Skilltap {
     )
   }
 
-  /** Install a skill by name (from the first source that has it) */
-  async install(skillName: string): Promise<InstalledSkill> {
+  /** Install a skill by name, detecting conflicts across sources */
+  async install(skillName: string, opts?: { from?: string }): Promise<InstalledSkill> {
+    // Explicit source specified — skip conflict detection
+    if (opts?.from) {
+      const source = parseSource(opts.from)
+      return installSkill(source, skillName, this.installDir, this.token, this.symlinkDirs)
+    }
+
+    // Find all sources that have this skill
+    const matches: TapSource[] = []
     for (const source of this.sources) {
       const content = await getSkillMd(source, skillName, this.token)
-      if (content) {
-        return installSkill(source, skillName, this.installDir, this.token, this.symlinkDirs)
-      }
+      if (content) matches.push(source)
     }
-    throw new Error(`Skill "${skillName}" not found in any source`)
+
+    if (matches.length === 0) {
+      throw new Error(`Skill "${skillName}" not found in any source`)
+    }
+
+    if (matches.length > 1) {
+      throw new SkillConflictError(
+        skillName,
+        matches.map((s) => `${s.owner}/${s.repo}`),
+      )
+    }
+
+    return installSkill(matches[0], skillName, this.installDir, this.token, this.symlinkDirs)
   }
 
   /** Uninstall a skill */
