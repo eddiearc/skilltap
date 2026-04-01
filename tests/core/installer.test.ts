@@ -76,6 +76,20 @@ describe('installSkill', () => {
     expect(downloadSkillDir).toHaveBeenCalledTimes(2)
   })
 
+  it('downloads a nested remote skill path into a flat local skill directory', async () => {
+    const files = [makeGitHubFile('SKILL.md', 'https://example.com/SKILL.md')]
+    vi.mocked(downloadSkillDir).mockResolvedValue(files)
+    vi.mocked(downloadFile).mockResolvedValue(VALID_SKILL_MD)
+    vi.mocked(fs.readFile).mockResolvedValue(VALID_SKILL_MD)
+    vi.mocked(parseFrontmatter).mockReturnValue({ name: 'pdf', description: 'PDF skill' })
+
+    const result = await installSkill(source, 'pdf', '/install-dir', undefined, undefined, 'skills/pdf')
+
+    expect(downloadSkillDir).toHaveBeenCalledWith(source, 'skills/pdf', undefined)
+    expect(fs.mkdir).toHaveBeenCalledWith('/install-dir/pdf', { recursive: true })
+    expect(result.path).toBe('/install-dir/pdf')
+  })
+
   it('skips files with null download_url', async () => {
     const files = [{ name: 'ghost.md', path: 'ghost.md', type: 'file' as const, download_url: null }]
     vi.mocked(downloadSkillDir).mockResolvedValue(files)

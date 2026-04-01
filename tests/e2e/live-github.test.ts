@@ -3,12 +3,12 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
-import { parseSource, listRepoDirs, getSkillMd } from '../../src/core/github.js'
+import { parseSource, listRepoDirs, getSkillMd, findSkills } from '../../src/core/github.js'
 import { installSkill, listInstalled, uninstallSkill } from '../../src/core/installer.js'
 import { Skilltap } from '../../src/core/client.js'
 
-// Only run when SKILLTAP_E2E is set
-const SKIP = !process.env.SKILLTAP_E2E
+// Only run when explicitly enabled with a token to avoid GitHub API rate limits.
+const SKIP = !process.env.SKILLTAP_E2E || !process.env.GITHUB_TOKEN
 
 let tmpDir: string
 
@@ -28,15 +28,22 @@ const source = parseSource(TEST_REPO)
 const token = process.env.GITHUB_TOKEN
 
 describe.skipIf(SKIP)('E2E: real GitHub API', () => {
-  it('listRepoDirs returns skill directories', async () => {
+  it('listRepoDirs returns top-level directories from the tap root', async () => {
     const dirs = await listRepoDirs(source, token)
 
     expect(dirs.length).toBeGreaterThan(0)
-    expect(dirs).toContain('pdf')
+    expect(dirs).toContain('skills')
   })
 
+  it('findSkills discovers nested skills recursively', async () => {
+    const skills = await findSkills(source, token)
+
+    expect(skills.length).toBeGreaterThan(0)
+    expect(skills.find((skill) => skill.name === 'pdf')?.path).toBe('skills/pdf')
+  }, 15_000)
+
   it('getSkillMd returns content for existing skill', async () => {
-    const content = await getSkillMd(source, 'pdf', token)
+    const content = await getSkillMd(source, 'skills/pdf', token)
 
     expect(content).not.toBeNull()
     expect(content).toContain('name:')
@@ -49,7 +56,7 @@ describe.skipIf(SKIP)('E2E: real GitHub API', () => {
   })
 
   it('installs a skill to temp directory', async () => {
-    const result = await installSkill(source, 'pdf', tmpDir, token)
+    const result = await installSkill(source, 'pdf', tmpDir, token, undefined, 'skills/pdf')
 
     expect(result.name).toBe('pdf')
     expect(result.path).toBe(path.join(tmpDir, 'pdf'))
@@ -85,6 +92,7 @@ describe.skipIf(SKIP)('E2E: full Skilltap client flow', () => {
     // available
     const available = await st.available()
     expect(available.length).toBeGreaterThan(0)
+    expect(available.find((skill) => skill.name === 'pdf')?.path).toBe('skills/pdf')
 
     // install
     const installed = await st.install('pdf')

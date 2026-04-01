@@ -4,9 +4,10 @@ import type {
   TapSource,
   RemoteSkill,
   InstalledSkill,
+  DiscoveredSkill,
 } from './types.js'
 import { SkillConflictError } from './types.js'
-import { parseSource, parseSourceEntry, resolveToken, listRepoDirs, getSkillMd, parseFrontmatter } from './github.js'
+import { parseSource, parseSourceEntry, resolveToken, findSkills } from './github.js'
 import { installSkill, uninstallSkill, listInstalled } from './installer.js'
 import { resolveAgentDirs } from './agents.js'
 
@@ -41,23 +42,23 @@ export class Skilltap {
     return resolveToken(entry, this.globalToken)
   }
 
+  private async discoverSourceSkills(
+    source: TapSource,
+    entry: SourceEntry | undefined,
+  ): Promise<DiscoveredSkill[]> {
+    return findSkills(source, entry ? this.tokenFor(entry) : this.globalToken)
+  }
+
   /** List all available skills from all sources */
   async available(): Promise<RemoteSkill[]> {
     const skills: RemoteSkill[] = []
 
     for (let i = 0; i < this.sources.length; i++) {
       const source = this.sources[i]
-      const token = this.tokenFor(this.entries[i])
-      const dirs = await listRepoDirs(source, token)
+      const discovered = await this.discoverSourceSkills(source, this.entries[i])
 
-      for (const dir of dirs) {
-        const content = await getSkillMd(source, dir, token)
-        if (!content) continue
-
-        const meta = parseFrontmatter(content)
-        if (!meta) continue
-
-        skills.push({ name: dir, meta, source, path: dir })
+      for (const skill of discovered) {
+        skills.push({ ...skill, source })
       }
     }
 
@@ -88,15 +89,20 @@ export class Skilltap {
         },
       )
       const token = matchEntry ? this.tokenFor(matchEntry) : this.globalToken
-      return installSkill(source, skillName, this.installDir, token, this.symlinkDirs)
+      const discovered = await this.discoverSourceSkills(source, matchEntry)
+      const match = discovered.find((skill) => skill.name === skillName)
+      if (!match) {
+        throw new Error(`Skill "${skillName}" not found in source "${opts.from}"`)
+      }
+      return installSkill(source, skillName, this.installDir, token, this.symlinkDirs, match.path)
     }
 
     // Find all sources that have this skill
-    const matches: { source: TapSource; entry: SourceEntry }[] = []
+    const matches: { source: TapSource; entry: SourceEntry; skill: DiscoveredSkill }[] = []
     for (let i = 0; i < this.sources.length; i++) {
-      const token = this.tokenFor(this.entries[i])
-      const content = await getSkillMd(this.sources[i], skillName, token)
-      if (content) matches.push({ source: this.sources[i], entry: this.entries[i] })
+      const discovered = await this.discoverSourceSkills(this.sources[i], this.entries[i])
+      const match = discovered.find((skill) => skill.name === skillName)
+      if (match) matches.push({ source: this.sources[i], entry: this.entries[i], skill: match })
     }
 
     if (matches.length === 0) {
@@ -111,7 +117,7 @@ export class Skilltap {
     }
 
     const token = this.tokenFor(matches[0].entry)
-    return installSkill(matches[0].source, skillName, this.installDir, token, this.symlinkDirs)
+    return installSkill(matches[0].source, skillName, this.installDir, token, this.symlinkDirs, matches[0].skill.path)
   }
 
   /** Uninstall a skill */

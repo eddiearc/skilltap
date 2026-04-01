@@ -19,9 +19,7 @@ vi.mock('../../src/core/github.js', () => ({
     if (typeof entry !== 'string' && entry.token) return entry.token
     return globalToken
   }),
-  listRepoDirs: vi.fn().mockResolvedValue([]),
-  getSkillMd: vi.fn().mockResolvedValue(null),
-  parseFrontmatter: vi.fn().mockReturnValue(null),
+  findSkills: vi.fn().mockResolvedValue([]),
 }))
 
 vi.mock('../../src/core/agents.js', () => ({
@@ -40,7 +38,7 @@ vi.mock('../../src/core/installer.js', () => ({
 }))
 
 import { Skilltap } from '../../src/core/client.js'
-import { listRepoDirs, getSkillMd, parseFrontmatter } from '../../src/core/github.js'
+import { findSkills } from '../../src/core/github.js'
 import { installSkill, uninstallSkill, listInstalled } from '../../src/core/installer.js'
 import { resolveAgentDirs } from '../../src/core/agents.js'
 
@@ -64,34 +62,24 @@ describe('constructor', () => {
 
 describe('available', () => {
   it('aggregates skills from multiple sources', async () => {
-    vi.mocked(listRepoDirs).mockResolvedValue(['pdf', 'xlsx'])
-    vi.mocked(getSkillMd).mockResolvedValue('---\nname: pdf\ndescription: test\n---')
-    vi.mocked(parseFrontmatter).mockReturnValue({ name: 'pdf', description: 'test' })
+    vi.mocked(findSkills)
+      .mockResolvedValueOnce([
+        { name: 'pdf', path: 'skills/pdf', meta: { name: 'pdf', description: 'PDF' } },
+        { name: 'xlsx', path: 'skills/xlsx', meta: { name: 'xlsx', description: 'Excel' } },
+      ])
+      .mockResolvedValueOnce([
+        { name: 'browser', path: 'browser', meta: { name: 'browser', description: 'Browser' } },
+      ])
 
     const st = new Skilltap({ sources: ['org1/skills', 'org2/skills'] })
     const skills = await st.available()
 
-    // 2 sources × 2 dirs each = 4 skills
-    expect(skills).toHaveLength(4)
+    expect(skills).toHaveLength(3)
+    expect(skills[0].path).toBe('skills/pdf')
   })
 
-  it('skips directories without SKILL.md', async () => {
-    vi.mocked(listRepoDirs).mockResolvedValue(['pdf', 'no-skill'])
-    vi.mocked(getSkillMd)
-      .mockResolvedValueOnce('---\nname: pdf\ndescription: PDF\n---')
-      .mockResolvedValueOnce(null)
-    vi.mocked(parseFrontmatter).mockReturnValue({ name: 'pdf', description: 'PDF' })
-
-    const st = new Skilltap({ sources: ['test/skills'] })
-    const skills = await st.available()
-
-    expect(skills).toHaveLength(1)
-  })
-
-  it('skips directories with invalid frontmatter', async () => {
-    vi.mocked(listRepoDirs).mockResolvedValue(['bad'])
-    vi.mocked(getSkillMd).mockResolvedValue('no frontmatter')
-    vi.mocked(parseFrontmatter).mockReturnValue(null)
+  it('returns empty when a source has no discovered skills', async () => {
+    vi.mocked(findSkills).mockResolvedValue([])
 
     const st = new Skilltap({ sources: ['test/skills'] })
     const skills = await st.available()
@@ -111,12 +99,11 @@ describe('available', () => {
 
 describe('search', () => {
   const setupAvailable = () => {
-    vi.mocked(listRepoDirs).mockResolvedValue(['pdf', 'xlsx', 'browser'])
-    vi.mocked(getSkillMd).mockResolvedValue('content')
-    vi.mocked(parseFrontmatter)
-      .mockReturnValueOnce({ name: 'pdf', description: 'Read PDF files' })
-      .mockReturnValueOnce({ name: 'xlsx', description: 'Read Excel spreadsheets' })
-      .mockReturnValueOnce({ name: 'browser', description: 'Browser automation' })
+    vi.mocked(findSkills).mockResolvedValue([
+      { name: 'pdf', path: 'skills/pdf', meta: { name: 'pdf', description: 'Read PDF files' } },
+      { name: 'xlsx', path: 'skills/xlsx', meta: { name: 'xlsx', description: 'Read Excel spreadsheets' } },
+      { name: 'browser', path: 'browser', meta: { name: 'browser', description: 'Browser automation' } },
+    ])
   }
 
   it('matches by name (case-insensitive)', async () => {
@@ -157,10 +144,12 @@ describe('search', () => {
 // --- install ---
 
 describe('install', () => {
-  it('installs from the first source that has the skill', async () => {
-    vi.mocked(getSkillMd)
-      .mockResolvedValueOnce(null)            // source 1 doesn't have it
-      .mockResolvedValueOnce('skill content')  // source 2 has it
+  it('installs from the first source that has the skill and passes the nested path through', async () => {
+    vi.mocked(findSkills)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { name: 'pdf', path: 'skills/pdf', meta: { name: 'pdf', description: 'PDF skill' } },
+      ])
     vi.mocked(installSkill).mockResolvedValue({
       name: 'pdf',
       meta: { name: 'pdf', description: 'PDF skill' },
@@ -173,12 +162,12 @@ describe('install', () => {
 
     expect(result.name).toBe('pdf')
     expect(installSkill).toHaveBeenCalledWith(
-      { owner: 'org2', repo: 'skills' }, 'pdf', undefined, undefined, undefined,
+      { owner: 'org2', repo: 'skills' }, 'pdf', undefined, undefined, undefined, 'skills/pdf',
     )
   })
 
   it('throws when skill not found in any source', async () => {
-    vi.mocked(getSkillMd).mockResolvedValue(null)
+    vi.mocked(findSkills).mockResolvedValue([])
 
     const st = new Skilltap({ sources: ['test/skills'] })
 
@@ -186,7 +175,9 @@ describe('install', () => {
   })
 
   it('throws SkillConflictError when multiple sources have the same skill', async () => {
-    vi.mocked(getSkillMd).mockResolvedValue('skill content') // both sources have it
+    vi.mocked(findSkills).mockResolvedValue([
+      { name: 'pdf', path: 'skills/pdf', meta: { name: 'pdf', description: 'PDF skill' } },
+    ])
 
     const st = new Skilltap({ sources: ['org1/skills', 'org2/skills'] })
 
@@ -196,6 +187,9 @@ describe('install', () => {
   })
 
   it('installs from specified source with { from } option', async () => {
+    vi.mocked(findSkills).mockResolvedValue([
+      { name: 'pdf', path: 'skills/pdf', meta: { name: 'pdf', description: 'PDF skill' } },
+    ])
     vi.mocked(installSkill).mockResolvedValue({
       name: 'pdf',
       meta: { name: 'pdf', description: 'PDF skill' },
@@ -208,10 +202,8 @@ describe('install', () => {
 
     expect(result.name).toBe('pdf')
     expect(installSkill).toHaveBeenCalledWith(
-      { owner: 'org2', repo: 'skills' }, 'pdf', undefined, undefined, undefined,
+      { owner: 'org2', repo: 'skills' }, 'pdf', undefined, undefined, undefined, 'skills/pdf',
     )
-    // getSkillMd should NOT be called — skips conflict detection
-    expect(getSkillMd).not.toHaveBeenCalled()
   })
 })
 
@@ -245,7 +237,10 @@ describe('update', () => {
       { name: 'pdf', meta: { name: 'pdf', description: '' }, path: '/skills/pdf' },
       { name: 'xlsx', meta: { name: 'xlsx', description: '' }, path: '/skills/xlsx' },
     ])
-    vi.mocked(getSkillMd).mockResolvedValue('content')
+    vi.mocked(findSkills).mockResolvedValue([
+      { name: 'pdf', path: 'skills/pdf', meta: { name: 'pdf', description: '' } },
+      { name: 'xlsx', path: 'skills/xlsx', meta: { name: 'xlsx', description: '' } },
+    ])
 
     const st = new Skilltap({ sources: ['test/skills'] })
     const updated = await st.update()
@@ -258,7 +253,7 @@ describe('update', () => {
       { name: 'pdf', meta: { name: 'pdf', description: '' }, path: '/skills/pdf' },
       { name: 'broken', meta: { name: 'broken', description: '' }, path: '/skills/broken' },
     ])
-    vi.mocked(getSkillMd).mockResolvedValue(null)  // all sources return null → install throws
+    vi.mocked(findSkills).mockResolvedValue([])
 
     const st = new Skilltap({ sources: ['test/skills'] })
     const updated = await st.update()
@@ -280,7 +275,9 @@ describe('update', () => {
 
 describe('agents config', () => {
   it('passes resolved agent dirs as symlinkDirs to installSkill', async () => {
-    vi.mocked(getSkillMd).mockResolvedValue('content')
+    vi.mocked(findSkills).mockResolvedValue([
+      { name: 'pdf', path: 'skills/pdf', meta: { name: 'pdf', description: 'PDF skill' } },
+    ])
 
     const st = new Skilltap({ sources: ['test/skills'], agents: ['claude-code', 'cursor'] })
     await st.install('pdf')
@@ -289,6 +286,7 @@ describe('agents config', () => {
     expect(installSkill).toHaveBeenCalledWith(
       expect.anything(), 'pdf', undefined, undefined,
       ['/mock-home/.claude-code/skills', '/mock-home/.cursor/skills'],
+      'skills/pdf',
     )
   })
 
@@ -302,31 +300,37 @@ describe('agents config', () => {
   })
 
   it('does not pass symlinkDirs when no agents configured', async () => {
-    vi.mocked(getSkillMd).mockResolvedValue('content')
+    vi.mocked(findSkills).mockResolvedValue([
+      { name: 'pdf', path: 'skills/pdf', meta: { name: 'pdf', description: 'PDF skill' } },
+    ])
 
     const st = new Skilltap({ sources: ['test/skills'] })
     await st.install('pdf')
 
     expect(installSkill).toHaveBeenCalledWith(
-      expect.anything(), 'pdf', undefined, undefined, undefined,
+      expect.anything(), 'pdf', undefined, undefined, undefined, 'skills/pdf',
     )
   })
 })
 
 describe('dirs config', () => {
   it('passes custom dirs as symlinkDirs', async () => {
-    vi.mocked(getSkillMd).mockResolvedValue('content')
+    vi.mocked(findSkills).mockResolvedValue([
+      { name: 'pdf', path: 'skills/pdf', meta: { name: 'pdf', description: 'PDF skill' } },
+    ])
 
     const st = new Skilltap({ sources: ['test/skills'], dirs: ['/custom/skills'] })
     await st.install('pdf')
 
     expect(installSkill).toHaveBeenCalledWith(
-      expect.anything(), 'pdf', undefined, undefined, ['/custom/skills'],
+      expect.anything(), 'pdf', undefined, undefined, ['/custom/skills'], 'skills/pdf',
     )
   })
 
   it('merges agents and dirs, deduplicates', async () => {
-    vi.mocked(getSkillMd).mockResolvedValue('content')
+    vi.mocked(findSkills).mockResolvedValue([
+      { name: 'pdf', path: 'skills/pdf', meta: { name: 'pdf', description: 'PDF skill' } },
+    ])
 
     const st = new Skilltap({
       sources: ['test/skills'],
@@ -339,6 +343,7 @@ describe('dirs config', () => {
     expect(installSkill).toHaveBeenCalledWith(
       expect.anything(), 'pdf', undefined, undefined,
       ['/mock-home/.cursor/skills', '/extra/skills'],
+      'skills/pdf',
     )
   })
 })
@@ -347,7 +352,9 @@ describe('dirs config', () => {
 
 describe('per-source token', () => {
   it('uses per-source token when source has its own token', async () => {
-    vi.mocked(getSkillMd).mockResolvedValue('content')
+    vi.mocked(findSkills).mockResolvedValue([
+      { name: 'pdf', path: 'skills/pdf', meta: { name: 'pdf', description: 'PDF skill' } },
+    ])
 
     const st = new Skilltap({
       sources: [{ repo: 'company/private', token: 'ghp_source' }],
@@ -357,12 +364,14 @@ describe('per-source token', () => {
 
     // Per-source token should be passed (not global)
     expect(installSkill).toHaveBeenCalledWith(
-      { owner: 'company', repo: 'private' }, 'pdf', undefined, 'ghp_source', undefined,
+      { owner: 'company', repo: 'private' }, 'pdf', undefined, 'ghp_source', undefined, 'skills/pdf',
     )
   })
 
   it('falls back to global token when source has no token', async () => {
-    vi.mocked(getSkillMd).mockResolvedValue('content')
+    vi.mocked(findSkills).mockResolvedValue([
+      { name: 'pdf', path: 'skills/pdf', meta: { name: 'pdf', description: 'PDF skill' } },
+    ])
 
     const st = new Skilltap({
       sources: ['company/public'],
@@ -371,25 +380,27 @@ describe('per-source token', () => {
     await st.install('pdf')
 
     expect(installSkill).toHaveBeenCalledWith(
-      { owner: 'company', repo: 'public' }, 'pdf', undefined, 'ghp_global', undefined,
+      { owner: 'company', repo: 'public' }, 'pdf', undefined, 'ghp_global', undefined, 'skills/pdf',
     )
   })
 
   it('passes undefined token when neither source nor global token set', async () => {
-    vi.mocked(getSkillMd).mockResolvedValue('content')
+    vi.mocked(findSkills).mockResolvedValue([
+      { name: 'pdf', path: 'skills/pdf', meta: { name: 'pdf', description: 'PDF skill' } },
+    ])
 
     const st = new Skilltap({ sources: ['public/repo'] })
     await st.install('pdf')
 
     expect(installSkill).toHaveBeenCalledWith(
-      { owner: 'public', repo: 'repo' }, 'pdf', undefined, undefined, undefined,
+      { owner: 'public', repo: 'repo' }, 'pdf', undefined, undefined, undefined, 'skills/pdf',
     )
   })
 
   it('uses per-source token for available() API calls', async () => {
-    vi.mocked(listRepoDirs).mockResolvedValue(['pdf'])
-    vi.mocked(getSkillMd).mockResolvedValue('---\nname: pdf\ndescription: test\n---')
-    vi.mocked(parseFrontmatter).mockReturnValue({ name: 'pdf', description: 'test' })
+    vi.mocked(findSkills).mockResolvedValue([
+      { name: 'pdf', path: 'skills/pdf', meta: { name: 'pdf', description: 'test' } },
+    ])
 
     const st = new Skilltap({
       sources: [{ repo: 'company/private', token: 'ghp_source' }],
@@ -397,15 +408,13 @@ describe('per-source token', () => {
     })
     await st.available()
 
-    // Per-source token should be passed to listRepoDirs and getSkillMd
-    expect(listRepoDirs).toHaveBeenCalledWith({ owner: 'company', repo: 'private' }, 'ghp_source')
-    expect(getSkillMd).toHaveBeenCalledWith({ owner: 'company', repo: 'private' }, 'pdf', 'ghp_source')
+    expect(findSkills).toHaveBeenCalledWith({ owner: 'company', repo: 'private' }, 'ghp_source')
   })
 
   it('handles mixed string and SourceConfig sources', async () => {
-    vi.mocked(listRepoDirs).mockResolvedValue(['pdf'])
-    vi.mocked(getSkillMd).mockResolvedValue('---\nname: pdf\ndescription: test\n---')
-    vi.mocked(parseFrontmatter).mockReturnValue({ name: 'pdf', description: 'test' })
+    vi.mocked(findSkills).mockResolvedValue([
+      { name: 'pdf', path: 'skills/pdf', meta: { name: 'pdf', description: 'test' } },
+    ])
 
     const st = new Skilltap({
       sources: ['public/repo', { repo: 'company/private', token: 'ghp_private' }],
@@ -413,10 +422,8 @@ describe('per-source token', () => {
     })
     await st.available()
 
-    // First source (string) uses global token
-    expect(listRepoDirs).toHaveBeenCalledWith({ owner: 'public', repo: 'repo' }, 'ghp_global')
-    // Second source (SourceConfig) uses per-source token
-    expect(listRepoDirs).toHaveBeenCalledWith({ owner: 'company', repo: 'private' }, 'ghp_private')
+    expect(findSkills).toHaveBeenNthCalledWith(1, { owner: 'public', repo: 'repo' }, 'ghp_global')
+    expect(findSkills).toHaveBeenNthCalledWith(2, { owner: 'company', repo: 'private' }, 'ghp_private')
   })
 
   it('accepts SourceConfig in constructor without error', () => {
@@ -430,6 +437,9 @@ describe('per-source token', () => {
   })
 
   it('resolves per-source token for install with --from matching a SourceConfig', async () => {
+    vi.mocked(findSkills).mockResolvedValue([
+      { name: 'pdf', path: 'skills/pdf', meta: { name: 'pdf', description: 'PDF skill' } },
+    ])
     vi.mocked(installSkill).mockResolvedValue({
       name: 'pdf',
       meta: { name: 'pdf', description: 'PDF skill' },
@@ -444,7 +454,7 @@ describe('per-source token', () => {
     await st.install('pdf', { from: 'company/private' })
 
     expect(installSkill).toHaveBeenCalledWith(
-      { owner: 'company', repo: 'private' }, 'pdf', undefined, 'ghp_private', undefined,
+      { owner: 'company', repo: 'private' }, 'pdf', undefined, 'ghp_private', undefined, 'skills/pdf',
     )
   })
 })

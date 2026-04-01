@@ -2,6 +2,7 @@ import { Command } from 'commander'
 import { Skilltap } from '../core/client.js'
 import { AGENTS, detectInstalledAgents, resolveAgentDirs } from '../core/agents.js'
 import { loadConfig, saveConfig } from './config.js'
+import { getCliVersion } from './version.js'
 import { SkillConflictError } from '../core/types.js'
 import type { SkilltapConfigFile, SourceEntry } from '../core/types.js'
 import { sourceEntryRepo } from '../core/github.js'
@@ -11,7 +12,7 @@ const program = new Command()
 program
   .name('skilltap')
   .description('Install AI agent skills from GitHub repos')
-  .version('0.1.0')
+  .version(await getCliVersion())
 
 /** Resolve agent options into config.agents and config.dirs */
 async function resolveAgentOpts(

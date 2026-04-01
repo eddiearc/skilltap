@@ -23,6 +23,13 @@ export interface RemoteSkill {
   path: string
 }
 
+/** A skill discovered inside a source repo */
+export interface DiscoveredSkill {
+  name: string
+  meta: SkillMeta
+  path: string
+}
+
 /** A locally installed skill */
 export interface InstalledSkill {
   name: string

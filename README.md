@@ -1,6 +1,6 @@
 # skilltap
 
-One repo = one skill market.
+One repo = one skill market, even when skills live in nested folders.
 
 Install AI agent skills from GitHub repos — with multi-agent support.
 
@@ -18,15 +18,18 @@ npm install @eddiearc/skilltap
 
 ## Concept
 
-A **tap** is a GitHub repository containing AI agent skills (directories with `SKILL.md`). Add a tap, then browse and install skills from it.
+A **tap** is a GitHub repository containing AI agent skills (directories with `SKILL.md`). `skilltap` recursively discovers skill folders, so it works with both flat repos and nested layouts such as `skills/pdf/SKILL.md`.
 
 ```
 github.com/anthropics/skills/       <- this is a tap
-├── pdf/
-│   └── SKILL.md
-├── frontend-design/
-│   └── SKILL.md
-└── canvas-design/
+├── skills/
+│   ├── pdf/
+│   │   └── SKILL.md
+│   ├── frontend-design/
+│   │   └── SKILL.md
+│   └── canvas-design/
+│       └── SKILL.md
+└── template/
     └── SKILL.md
 ```
 
@@ -113,6 +116,19 @@ Skills are stored as real files in `~/.agents/skills/` and symlinked to each age
 
 Supported agents: Claude Code, Codex, Cursor, Windsurf, GitHub Copilot, Gemini CLI, Cline, Roo Code, Amp, Augment.
 
+## Skill Discovery
+
+The skill format is based on the Agent Skills convention: a skill is a directory containing a `SKILL.md` file with YAML frontmatter and markdown instructions.
+
+`skilltap` treats a source repo as a directory tree and discovers skills with this rule:
+
+1. Start at the repo root.
+2. For each subdirectory, check whether it directly contains `SKILL.md`.
+3. If yes, register that directory as a skill and stop descending into it.
+4. If not, continue recursively through its child directories.
+
+This matches the current `anthropics/skills` layout, where most skills live under `skills/`, while still supporting flat repositories.
+
 ### Conflict Resolution
 
 When multiple sources have a skill with the same name:
@@ -148,7 +164,7 @@ const results = await st.search('pdf')
 
 // Install & manage
 await st.install('pdf')
-await st.install('pdf', { from: 'anthropic/skills' })
+await st.install('pdf', { from: 'anthropics/skills' })
 await st.uninstall('pdf')
 await st.update()
 
@@ -189,6 +205,16 @@ Config is stored at `~/.skilltap/config.json`:
   "token": "ghp_global_fallback"
 }
 ```
+
+## Versioning And Release
+
+The CLI version is read from `package.json`, so `skilltap --version` stays aligned with the published package version.
+
+The release workflow also uses `package.json` as the source of truth:
+
+1. Read `package.json.version`
+2. Publish that package version to npm
+3. Create and push the matching Git tag (`v<version>`)
 
 ## License
 

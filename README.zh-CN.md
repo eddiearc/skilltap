@@ -1,6 +1,6 @@
 # skilltap
 
-一个仓库就是一个技能市场。
+一个仓库就是一个技能市场，即使技能放在多层子目录里也一样。
 
 从 GitHub 仓库安装 AI Agent 技能，支持多 Agent 分发。
 
@@ -18,15 +18,18 @@ npm install @eddiearc/skilltap
 
 ## 概念
 
-一个 **tap** 就是一个包含 AI Agent 技能的 GitHub 仓库（每个目录含 `SKILL.md`）。添加一个 tap，就能浏览和安装里面的技能。
+一个 **tap** 就是一个包含 AI Agent 技能的 GitHub 仓库（技能目录里带 `SKILL.md`）。`skilltap` 会递归发现技能目录，因此既支持扁平结构，也支持 `skills/pdf/SKILL.md` 这种多层布局。
 
 ```
 github.com/anthropics/skills/       <- 这就是一个 tap
-├── pdf/
-│   └── SKILL.md
-├── frontend-design/
-│   └── SKILL.md
-└── canvas-design/
+├── skills/
+│   ├── pdf/
+│   │   └── SKILL.md
+│   ├── frontend-design/
+│   │   └── SKILL.md
+│   └── canvas-design/
+│       └── SKILL.md
+└── template/
     └── SKILL.md
 ```
 
@@ -113,6 +116,19 @@ skilltap agents
 
 支持的 Agent：Claude Code、Codex、Cursor、Windsurf、GitHub Copilot、Gemini CLI、Cline、Roo Code、Amp、Augment。
 
+## 技能发现规则
+
+Skill 的核心规范是：一个技能就是一个包含 `SKILL.md` 的目录，`SKILL.md` 里放 YAML frontmatter 和 Markdown 指令。
+
+`skilltap` 现在按下面的规则发现技能：
+
+1. 从仓库根目录开始遍历。
+2. 对每个子目录检查它是否直接包含 `SKILL.md`。
+3. 如果包含，就把该目录认定为一个 skill，并停止继续向下遍历这个目录。
+4. 如果不包含，就继续递归检查它的子目录。
+
+这样既兼容早期的扁平结构，也兼容 `anthropics/skills` 当前把大部分技能放在 `skills/` 子目录里的结构。
+
 ### 冲突处理
 
 当多个源有同名技能时：
@@ -148,7 +164,7 @@ const results = await st.search('pdf')
 
 // 安装和管理
 await st.install('pdf')
-await st.install('pdf', { from: 'anthropic/skills' })
+await st.install('pdf', { from: 'anthropics/skills' })
 await st.uninstall('pdf')
 await st.update()
 
@@ -189,6 +205,16 @@ const agents = await detectInstalledAgents()
   "token": "ghp_global_fallback"
 }
 ```
+
+## 版本与发布
+
+CLI 版本号现在直接读取 `package.json`，因此 `skilltap --version` 会和实际发布包版本保持一致。
+
+发布流程也以 `package.json` 为单一真相源：
+
+1. 读取 `package.json.version`
+2. 发布对应 npm 包版本
+3. 创建并推送匹配的 Git Tag：`v<version>`
 
 ## License
 

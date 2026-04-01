@@ -7,6 +7,7 @@ export type {
   SourceEntry,
   TapSource,
   SkillMeta,
+  DiscoveredSkill,
   RemoteSkill,
   InstalledSkill,
 } from './core/types.js'

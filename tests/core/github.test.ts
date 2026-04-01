@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { parseSource, parseSourceEntry, sourceEntryRepo, resolveToken, listRepoDirs, getSkillMd, downloadSkillDir, downloadFile, parseFrontmatter } from '../../src/core/github.js'
+import { parseSource, parseSourceEntry, sourceEntryRepo, resolveToken, listRepoDirs, getSkillMd, downloadSkillDir, downloadFile, parseFrontmatter, findSkills } from '../../src/core/github.js'
 import {
   VALID_SKILL_MD,
   MINIMAL_SKILL_MD,
@@ -255,6 +255,90 @@ describe('downloadSkillDir', () => {
     }))
 
     await expect(downloadSkillDir(source, 'pdf')).rejects.toThrow('404')
+  })
+})
+
+// --- findSkills ---
+
+describe('findSkills', () => {
+  const source = { owner: 'test', repo: 'skills' }
+
+  it('finds skills recursively from nested directories', async () => {
+    vi.stubGlobal('fetch', mockFetchResponses({
+      'contents/template/SKILL.md': {
+        status: 200,
+        body: `---\nname: template\ndescription: Template skill\n---`,
+      },
+      'contents/skills/SKILL.md': { status: 404, body: 'Not Found' },
+      'contents/skills/pdf/SKILL.md': {
+        status: 200,
+        body: `---\nname: pdf\ndescription: Read PDF files\n---`,
+      },
+      'contents/skills/docx/SKILL.md': {
+        status: 200,
+        body: `---\nname: docx\ndescription: Read Word files\n---`,
+      },
+      'contents/skills': {
+        status: 200,
+        body: makeRepoContents(['pdf', 'docx']),
+      },
+      'contents/docs/SKILL.md': { status: 404, body: 'Not Found' },
+      'contents/docs': {
+        status: 200,
+        body: [],
+      },
+      'contents/': {
+        status: 200,
+        body: makeRepoContents(['template', 'skills', 'docs'], ['README.md']),
+      },
+    }))
+
+    const skills = await findSkills(source)
+
+    expect(skills).toEqual([
+      {
+        name: 'template',
+        path: 'template',
+        meta: { name: 'template', description: 'Template skill' },
+      },
+      {
+        name: 'pdf',
+        path: 'skills/pdf',
+        meta: { name: 'pdf', description: 'Read PDF files' },
+      },
+      {
+        name: 'docx',
+        path: 'skills/docx',
+        meta: { name: 'docx', description: 'Read Word files' },
+      },
+    ])
+  })
+
+  it('stops descending once a directory is identified as a skill', async () => {
+    const mockFetch = vi.fn(mockFetchResponses({
+      'contents/bundle/SKILL.md': {
+        status: 200,
+        body: `---\nname: bundle\ndescription: Parent skill\n---`,
+      },
+      'contents/': {
+        status: 200,
+        body: makeRepoContents(['bundle']),
+      },
+    }))
+    vi.stubGlobal('fetch', mockFetch as unknown as typeof fetch)
+
+    const skills = await findSkills(source)
+
+    expect(skills).toEqual([
+      {
+        name: 'bundle',
+        path: 'bundle',
+        meta: { name: 'bundle', description: 'Parent skill' },
+      },
+    ])
+    expect(
+      mockFetch.mock.calls.some(([url]) => String(url).includes('contents/bundle/scripts')),
+    ).toBe(false)
   })
 })
 

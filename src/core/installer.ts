@@ -3,7 +3,7 @@ import path from 'node:path'
 import os from 'node:os'
 
 import type { TapSource, InstalledSkill } from './types.js'
-import { downloadSkillDir, downloadFile, getSkillMd, parseFrontmatter } from './github.js'
+import { downloadSkillDir, downloadFile, parseFrontmatter } from './github.js'
 
 const DEFAULT_INSTALL_DIR = path.join(os.homedir(), '.agents', 'skills')
 
@@ -26,11 +26,12 @@ export async function installSkill(
   installDir = DEFAULT_INSTALL_DIR,
   token?: string,
   symlinkDirs?: string[],
+  remotePath = skillName,
 ): Promise<InstalledSkill> {
   const targetDir = path.join(installDir, skillName)
   await ensureDir(targetDir)
 
-  const files = await downloadSkillDir(source, skillName, token)
+  const files = await downloadSkillDir(source, remotePath, token)
 
   for (const file of files) {
     if (file.type === 'file' && file.download_url) {
@@ -41,7 +42,8 @@ export async function installSkill(
       // Recursively download subdirectories
       const subDir = path.join(targetDir, file.name)
       await ensureDir(subDir)
-      const subFiles = await downloadSkillDir(source, `${skillName}/${file.name}`, token)
+      const subPath = file.path.includes('/') ? file.path : `${remotePath}/${file.name}`
+      const subFiles = await downloadSkillDir(source, subPath, token)
       for (const subFile of subFiles) {
         if (subFile.type === 'file' && subFile.download_url) {
           const content = await downloadFile(subFile.download_url, token)

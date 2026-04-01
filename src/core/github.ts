@@ -1,4 +1,4 @@
-import type { TapSource, SkillMeta, SourceEntry } from './types.js'
+import type { TapSource, SkillMeta, SourceEntry, DiscoveredSkill } from './types.js'
 
 const GITHUB_API = 'https://api.github.com'
 
@@ -7,6 +7,32 @@ interface GitHubContent {
   path: string
   type: 'file' | 'dir'
   download_url: string | null
+}
+
+function normalizeRepoPath(repoPath: string): string {
+  return repoPath.replace(/^\/+|\/+$/g, '')
+}
+
+function joinRepoPath(parent: string, child: string): string {
+  return normalizeRepoPath([parent, child].filter(Boolean).join('/'))
+}
+
+function resolveContentPath(parent: string, item: Pick<GitHubContent, 'name' | 'path'>): string {
+  if (!parent) return normalizeRepoPath(item.path || item.name)
+  if (item.path && item.path.includes('/')) return normalizeRepoPath(item.path)
+  return joinRepoPath(parent, item.name)
+}
+
+async function listRepoContents(
+  source: TapSource,
+  token?: string,
+  repoPath = '',
+): Promise<GitHubContent[]> {
+  const normalizedPath = normalizeRepoPath(repoPath)
+  const url = `${GITHUB_API}/repos/${source.owner}/${source.repo}/contents/${normalizedPath}`
+  const res = await fetch(url, { headers: headers(token) })
+  if (!res.ok) throw new Error(`GitHub API error: ${res.status} ${res.statusText}`)
+  return res.json()
 }
 
 function headers(token?: string): Record<string, string> {
@@ -49,11 +75,7 @@ export function resolveToken(entry: SourceEntry, globalToken?: string): string |
 
 /** List top-level directories in a repo (each dir = potential skill) */
 export async function listRepoDirs(source: TapSource, token?: string): Promise<string[]> {
-  const url = `${GITHUB_API}/repos/${source.owner}/${source.repo}/contents/`
-  const res = await fetch(url, { headers: headers(token) })
-  if (!res.ok) throw new Error(`GitHub API error: ${res.status} ${res.statusText}`)
-
-  const items: GitHubContent[] = await res.json()
+  const items = await listRepoContents(source, token)
   return items
     .filter((item) => item.type === 'dir' && !item.name.startsWith('.'))
     .map((item) => item.name)
@@ -62,10 +84,10 @@ export async function listRepoDirs(source: TapSource, token?: string): Promise<s
 /** Check if a directory contains SKILL.md */
 export async function getSkillMd(
   source: TapSource,
-  skillName: string,
+  skillPath: string,
   token?: string,
 ): Promise<string | null> {
-  const url = `${GITHUB_API}/repos/${source.owner}/${source.repo}/contents/${skillName}/SKILL.md`
+  const url = `${GITHUB_API}/repos/${source.owner}/${source.repo}/contents/${normalizeRepoPath(skillPath)}/SKILL.md`
   const res = await fetch(url, {
     headers: { ...headers(token), Accept: 'application/vnd.github.v3.raw' },
   })
@@ -77,13 +99,10 @@ export async function getSkillMd(
 /** Download a skill directory as tarball and return file entries */
 export async function downloadSkillDir(
   source: TapSource,
-  skillName: string,
+  skillPath: string,
   token?: string,
 ): Promise<GitHubContent[]> {
-  const url = `${GITHUB_API}/repos/${source.owner}/${source.repo}/contents/${skillName}`
-  const res = await fetch(url, { headers: headers(token) })
-  if (!res.ok) throw new Error(`GitHub API error: ${res.status} ${res.statusText}`)
-  return res.json()
+  return listRepoContents(source, token, skillPath)
 }
 
 /** Download a single file's raw content */
@@ -117,4 +136,32 @@ export function parseFrontmatter(content: string): SkillMeta | null {
     }
   }
   return meta.name ? meta : null
+}
+
+/** Recursively discover skill directories by locating SKILL.md files */
+export async function findSkills(
+  source: TapSource,
+  token?: string,
+  repoPath = '',
+): Promise<DiscoveredSkill[]> {
+  const items = await listRepoContents(source, token, repoPath)
+  const dirs = items.filter((item) => item.type === 'dir' && !item.name.startsWith('.'))
+  const skills: DiscoveredSkill[] = []
+
+  for (const dir of dirs) {
+    const dirPath = resolveContentPath(repoPath, dir)
+    const skillMd = await getSkillMd(source, dirPath, token)
+
+    if (skillMd) {
+      const meta = parseFrontmatter(skillMd)
+      if (meta) {
+        skills.push({ name: meta.name, meta, path: dirPath })
+      }
+      continue
+    }
+
+    skills.push(...await findSkills(source, token, dirPath))
+  }
+
+  return skills
 }
