@@ -6,6 +6,19 @@ vi.mock('../../src/core/github.js', () => ({
     if (!owner || !repo) throw new Error(`Invalid source: "${s}"`)
     return { owner, repo }
   }),
+  parseSourceEntry: vi.fn((entry: string | { repo: string; branch?: string }) => {
+    const s = typeof entry === 'string' ? entry : entry.repo
+    const [owner, repo] = s.split('/')
+    if (!owner || !repo) throw new Error(`Invalid source: "${s}"`)
+    const result: { owner: string; repo: string; branch?: string } = { owner, repo }
+    if (typeof entry !== 'string' && entry.branch) result.branch = entry.branch
+    return result
+  }),
+  sourceEntryRepo: vi.fn((entry: string | { repo: string }) => typeof entry === 'string' ? entry : entry.repo),
+  resolveToken: vi.fn((entry: string | { token?: string }, globalToken?: string) => {
+    if (typeof entry !== 'string' && entry.token) return entry.token
+    return globalToken
+  }),
   listRepoDirs: vi.fn().mockResolvedValue([]),
   getSkillMd: vi.fn().mockResolvedValue(null),
   parseFrontmatter: vi.fn().mockReturnValue(null),
@@ -326,6 +339,112 @@ describe('dirs config', () => {
     expect(installSkill).toHaveBeenCalledWith(
       expect.anything(), 'pdf', undefined, undefined,
       ['/mock-home/.cursor/skills', '/extra/skills'],
+    )
+  })
+})
+
+// --- per-source token ---
+
+describe('per-source token', () => {
+  it('uses per-source token when source has its own token', async () => {
+    vi.mocked(getSkillMd).mockResolvedValue('content')
+
+    const st = new Skilltap({
+      sources: [{ repo: 'company/private', token: 'ghp_source' }],
+      token: 'ghp_global',
+    })
+    await st.install('pdf')
+
+    // Per-source token should be passed (not global)
+    expect(installSkill).toHaveBeenCalledWith(
+      { owner: 'company', repo: 'private' }, 'pdf', undefined, 'ghp_source', undefined,
+    )
+  })
+
+  it('falls back to global token when source has no token', async () => {
+    vi.mocked(getSkillMd).mockResolvedValue('content')
+
+    const st = new Skilltap({
+      sources: ['company/public'],
+      token: 'ghp_global',
+    })
+    await st.install('pdf')
+
+    expect(installSkill).toHaveBeenCalledWith(
+      { owner: 'company', repo: 'public' }, 'pdf', undefined, 'ghp_global', undefined,
+    )
+  })
+
+  it('passes undefined token when neither source nor global token set', async () => {
+    vi.mocked(getSkillMd).mockResolvedValue('content')
+
+    const st = new Skilltap({ sources: ['public/repo'] })
+    await st.install('pdf')
+
+    expect(installSkill).toHaveBeenCalledWith(
+      { owner: 'public', repo: 'repo' }, 'pdf', undefined, undefined, undefined,
+    )
+  })
+
+  it('uses per-source token for available() API calls', async () => {
+    vi.mocked(listRepoDirs).mockResolvedValue(['pdf'])
+    vi.mocked(getSkillMd).mockResolvedValue('---\nname: pdf\ndescription: test\n---')
+    vi.mocked(parseFrontmatter).mockReturnValue({ name: 'pdf', description: 'test' })
+
+    const st = new Skilltap({
+      sources: [{ repo: 'company/private', token: 'ghp_source' }],
+      token: 'ghp_global',
+    })
+    await st.available()
+
+    // Per-source token should be passed to listRepoDirs and getSkillMd
+    expect(listRepoDirs).toHaveBeenCalledWith({ owner: 'company', repo: 'private' }, 'ghp_source')
+    expect(getSkillMd).toHaveBeenCalledWith({ owner: 'company', repo: 'private' }, 'pdf', 'ghp_source')
+  })
+
+  it('handles mixed string and SourceConfig sources', async () => {
+    vi.mocked(listRepoDirs).mockResolvedValue(['pdf'])
+    vi.mocked(getSkillMd).mockResolvedValue('---\nname: pdf\ndescription: test\n---')
+    vi.mocked(parseFrontmatter).mockReturnValue({ name: 'pdf', description: 'test' })
+
+    const st = new Skilltap({
+      sources: ['public/repo', { repo: 'company/private', token: 'ghp_private' }],
+      token: 'ghp_global',
+    })
+    await st.available()
+
+    // First source (string) uses global token
+    expect(listRepoDirs).toHaveBeenCalledWith({ owner: 'public', repo: 'repo' }, 'ghp_global')
+    // Second source (SourceConfig) uses per-source token
+    expect(listRepoDirs).toHaveBeenCalledWith({ owner: 'company', repo: 'private' }, 'ghp_private')
+  })
+
+  it('accepts SourceConfig in constructor without error', () => {
+    expect(() => new Skilltap({
+      sources: [
+        'anthropics/skills',
+        { repo: 'company/private', token: 'ghp_xxx' },
+        { repo: 'other/repo', branch: 'dev' },
+      ],
+    })).not.toThrow()
+  })
+
+  it('resolves per-source token for install with --from matching a SourceConfig', async () => {
+    vi.mocked(installSkill).mockResolvedValue({
+      name: 'pdf',
+      meta: { name: 'pdf', description: 'PDF skill' },
+      path: '/skills/pdf',
+      source: { owner: 'company', repo: 'private' },
+    })
+
+    const st = new Skilltap({
+      sources: ['public/repo', { repo: 'company/private', token: 'ghp_private' }],
+      token: 'ghp_global',
+    })
+    await st.install('pdf', { from: 'company/private' })
+
+    expect(installSkill).toHaveBeenCalledWith(
+      { owner: 'company', repo: 'private' }, 'pdf', undefined, 'ghp_private', undefined,
     )
   })
 })

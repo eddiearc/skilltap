@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { parseSource, listRepoDirs, getSkillMd, downloadSkillDir, downloadFile, parseFrontmatter } from '../../src/core/github.js'
+import { parseSource, parseSourceEntry, sourceEntryRepo, resolveToken, listRepoDirs, getSkillMd, downloadSkillDir, downloadFile, parseFrontmatter } from '../../src/core/github.js'
 import {
   VALID_SKILL_MD,
   MINIMAL_SKILL_MD,
@@ -76,6 +76,68 @@ describe('parseFrontmatter', () => {
   it('handles colons in values', () => {
     const meta = parseFrontmatter(COLON_IN_VALUE_SKILL_MD)
     expect(meta!.description).toBe('Note: this has a colon in the value')
+  })
+})
+
+// --- parseSourceEntry ---
+
+describe('parseSourceEntry', () => {
+  it('parses string entry like parseSource', () => {
+    expect(parseSourceEntry('owner/repo')).toEqual({ owner: 'owner', repo: 'repo' })
+  })
+
+  it('parses SourceConfig object', () => {
+    expect(parseSourceEntry({ repo: 'owner/repo' })).toEqual({ owner: 'owner', repo: 'repo' })
+  })
+
+  it('preserves branch from SourceConfig', () => {
+    expect(parseSourceEntry({ repo: 'owner/repo', branch: 'dev' })).toEqual({ owner: 'owner', repo: 'repo', branch: 'dev' })
+  })
+
+  it('ignores token (token is not part of TapSource)', () => {
+    const result = parseSourceEntry({ repo: 'owner/repo', token: 'ghp_xxx' })
+    expect(result).toEqual({ owner: 'owner', repo: 'repo' })
+    expect((result as any).token).toBeUndefined()
+  })
+
+  it('throws on invalid SourceConfig repo', () => {
+    expect(() => parseSourceEntry({ repo: 'invalid' })).toThrow('Invalid source')
+  })
+})
+
+// --- sourceEntryRepo ---
+
+describe('sourceEntryRepo', () => {
+  it('returns string as-is', () => {
+    expect(sourceEntryRepo('owner/repo')).toBe('owner/repo')
+  })
+
+  it('returns repo from SourceConfig', () => {
+    expect(sourceEntryRepo({ repo: 'owner/repo', token: 'ghp_xxx' })).toBe('owner/repo')
+  })
+})
+
+// --- resolveToken ---
+
+describe('resolveToken', () => {
+  it('returns per-source token when present', () => {
+    expect(resolveToken({ repo: 'o/r', token: 'ghp_source' }, 'ghp_global')).toBe('ghp_source')
+  })
+
+  it('falls back to global token for SourceConfig without token', () => {
+    expect(resolveToken({ repo: 'o/r' }, 'ghp_global')).toBe('ghp_global')
+  })
+
+  it('falls back to global token for string entry', () => {
+    expect(resolveToken('o/r', 'ghp_global')).toBe('ghp_global')
+  })
+
+  it('returns undefined when no tokens available', () => {
+    expect(resolveToken('o/r')).toBeUndefined()
+  })
+
+  it('returns undefined when SourceConfig has no token and no global', () => {
+    expect(resolveToken({ repo: 'o/r' })).toBeUndefined()
   })
 })
 

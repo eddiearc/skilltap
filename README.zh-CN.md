@@ -40,6 +40,9 @@ github.com/anthropics/skills/       <- 这就是一个 tap
 # 添加技能源
 skilltap add anthropics/skills
 
+# 添加带独立 token 的私有源
+skilltap add company/private-skills --token ghp_xxx
+
 # 移除源
 skilltap remove anthropics/skills
 
@@ -131,8 +134,11 @@ $ skilltap install pdf --from my-company/skills
 import { Skilltap } from '@eddiearc/skilltap'
 
 const st = new Skilltap({
-  sources: ['anthropics/skills', 'your-company/skills'],
-  token: 'ghp_xxx',              // 可选，用于私有仓库
+  sources: [
+    'anthropics/skills',                                    // 公开源（字符串）
+    { repo: 'company/private-skills', token: 'ghp_xxx' },  // 私有源，带独立 token
+  ],
+  token: 'ghp_fallback',            // 可选，全局兜底 token
   agents: ['claude-code', 'cursor'], // 可选，软链接目标
 })
 
@@ -161,11 +167,11 @@ const agents = await detectInstalledAgents()
 
 ## 鉴权
 
-skilltap 按以下顺序自动检测 GitHub 凭证：
+每个源的 token 按以下优先级解析：
 
-1. `gh` CLI 配置（`~/.config/gh/hosts.yml`）
-2. `GITHUB_TOKEN` 环境变量
-3. `~/.skilltap/config.json` 中的 token 字段
+1. **源级 token**（`SourceConfig.token`）
+2. **全局 token**（`SkilltapConfig.token` 或 `~/.skilltap/config.json`）
+3. **自动检测凭证**（`gh` CLI 配置 或 `GITHUB_TOKEN` 环境变量）
 
 公开仓库无需鉴权。
 
@@ -175,8 +181,12 @@ skilltap 按以下顺序自动检测 GitHub 凭证：
 
 ```json
 {
-  "sources": ["anthropics/skills"],
-  "installDir": "~/.agents/skills"
+  "sources": [
+    "anthropics/skills",
+    { "repo": "company/private-skills", "token": "ghp_xxx" }
+  ],
+  "installDir": "~/.agents/skills",
+  "token": "ghp_global_fallback"
 }
 ```
 

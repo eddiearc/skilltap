@@ -3,7 +3,8 @@ import { Skilltap } from '../core/client.js'
 import { AGENTS, detectInstalledAgents, resolveAgentDirs } from '../core/agents.js'
 import { loadConfig, saveConfig } from './config.js'
 import { SkillConflictError } from '../core/types.js'
-import type { SkilltapConfigFile } from '../core/types.js'
+import type { SkilltapConfigFile, SourceEntry } from '../core/types.js'
+import { sourceEntryRepo } from '../core/github.js'
 
 const program = new Command()
 
@@ -31,15 +32,17 @@ async function resolveAgentOpts(
 program
   .command('add <repo>')
   .description('Add a skill source (e.g. anthropics/skills)')
-  .action(async (repo: string) => {
+  .option('-t, --token <token>', 'GitHub PAT for this source (private repos)')
+  .action(async (repo: string, opts: { token?: string }) => {
     const config = await loadConfig()
-    if (config.sources.includes(repo)) {
+    if (config.sources.some((s) => sourceEntryRepo(s) === repo)) {
       console.log(`Source "${repo}" already added`)
       return
     }
-    config.sources.push(repo)
+    const entry: SourceEntry = opts.token ? { repo, token: opts.token } : repo
+    config.sources.push(entry)
     await saveConfig(config)
-    console.log(`Added source: ${repo}`)
+    console.log(`Added source: ${repo}${opts.token ? ' (with token)' : ''}`)
   })
 
 program
@@ -47,7 +50,7 @@ program
   .description('Remove a skill source')
   .action(async (repo: string) => {
     const config = await loadConfig()
-    config.sources = config.sources.filter((s) => s !== repo)
+    config.sources = config.sources.filter((s) => sourceEntryRepo(s) !== repo)
     await saveConfig(config)
     console.log(`Removed source: ${repo}`)
   })
@@ -176,7 +179,9 @@ program
       return
     }
     for (const source of config.sources) {
-      console.log(`  ${source}`)
+      const repo = sourceEntryRepo(source)
+      const hasToken = typeof source !== 'string' && !!source.token
+      console.log(`  ${repo}${hasToken ? ' (token configured)' : ''}`)
     }
   })
 

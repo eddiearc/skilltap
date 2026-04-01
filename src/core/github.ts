@@ -1,4 +1,4 @@
-import type { TapSource, SkillMeta } from './types.js'
+import type { TapSource, SkillMeta, SourceEntry } from './types.js'
 
 const GITHUB_API = 'https://api.github.com'
 
@@ -23,6 +23,28 @@ export function parseSource(source: string): TapSource {
   const [owner, repo] = source.split('/')
   if (!owner || !repo) throw new Error(`Invalid source: "${source}", expected "owner/repo"`)
   return { owner, repo }
+}
+
+/** Parse a SourceEntry (string or SourceConfig) into TapSource */
+export function parseSourceEntry(entry: SourceEntry): TapSource {
+  if (typeof entry === 'string') return parseSource(entry)
+  const source = parseSource(entry.repo)
+  if (entry.branch) source.branch = entry.branch
+  return source
+}
+
+/** Get the repo string from a SourceEntry */
+export function sourceEntryRepo(entry: SourceEntry): string {
+  return typeof entry === 'string' ? entry : entry.repo
+}
+
+/**
+ * Resolve the token for a source entry.
+ * Priority: per-source token > global token > undefined (auto-detect)
+ */
+export function resolveToken(entry: SourceEntry, globalToken?: string): string | undefined {
+  if (typeof entry !== 'string' && entry.token) return entry.token
+  return globalToken
 }
 
 /** List top-level directories in a repo (each dir = potential skill) */

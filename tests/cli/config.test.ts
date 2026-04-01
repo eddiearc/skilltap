@@ -74,3 +74,38 @@ describe('saveConfig', () => {
     )
   })
 })
+
+describe('mixed SourceEntry config', () => {
+  it('loads config with mixed string and SourceConfig sources', async () => {
+    vi.mocked(fs.readFile).mockResolvedValue(
+      JSON.stringify({
+        sources: ['anthropics/skills', { repo: 'company/private', token: 'ghp_xxx' }],
+      }),
+    )
+
+    const config = await loadConfig()
+
+    expect(config.sources).toEqual([
+      'anthropics/skills',
+      { repo: 'company/private', token: 'ghp_xxx' },
+    ])
+  })
+
+  it('saves config with mixed sources correctly', async () => {
+    const config = {
+      sources: [
+        'anthropics/skills' as string | { repo: string; token?: string },
+        { repo: 'company/private', token: 'ghp_xxx' },
+      ],
+      installDir: '/mock-home/.agents/skills',
+    }
+
+    await saveConfig(config)
+
+    expect(fs.writeFile).toHaveBeenCalledWith(
+      '/mock-home/.skilltap/config.json',
+      JSON.stringify(config, null, 2),
+      'utf-8',
+    )
+  })
+})

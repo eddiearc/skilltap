@@ -40,6 +40,9 @@ Skills are installed to `~/.agents/skills/` (universal directory) by default, an
 # Add a skill source
 skilltap add anthropics/skills
 
+# Add a private source with a per-source token
+skilltap add company/private-skills --token ghp_xxx
+
 # Remove a source
 skilltap remove anthropics/skills
 
@@ -131,8 +134,11 @@ $ skilltap install pdf --from my-company/skills
 import { Skilltap } from '@eddiearc/skilltap'
 
 const st = new Skilltap({
-  sources: ['anthropics/skills', 'your-company/skills'],
-  token: 'ghp_xxx',              // optional, for private repos
+  sources: [
+    'anthropics/skills',                                    // public source (string)
+    { repo: 'company/private-skills', token: 'ghp_xxx' },  // private source with per-source token
+  ],
+  token: 'ghp_fallback',            // optional, global fallback token
   agents: ['claude-code', 'cursor'], // optional, symlink targets
 })
 
@@ -161,11 +167,11 @@ const agents = await detectInstalledAgents()
 
 ## Authentication
 
-skilltap auto-detects GitHub credentials in this order:
+For each source, tokens are resolved in this order:
 
-1. `gh` CLI config (`~/.config/gh/hosts.yml`)
-2. `GITHUB_TOKEN` environment variable
-3. `~/.skilltap/config.json` token field
+1. **Per-source token** (from `SourceConfig.token`)
+2. **Global token** (from `SkilltapConfig.token` or `~/.skilltap/config.json`)
+3. **Auto-detected credentials** (`gh` CLI config or `GITHUB_TOKEN` env var)
 
 For public repos, no auth is needed.
 
@@ -175,8 +181,12 @@ Config is stored at `~/.skilltap/config.json`:
 
 ```json
 {
-  "sources": ["anthropics/skills"],
-  "installDir": "~/.agents/skills"
+  "sources": [
+    "anthropics/skills",
+    { "repo": "company/private-skills", "token": "ghp_xxx" }
+  ],
+  "installDir": "~/.agents/skills",
+  "token": "ghp_global_fallback"
 }
 ```
 

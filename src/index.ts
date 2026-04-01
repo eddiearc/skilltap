@@ -3,6 +3,8 @@ export { SkillConflictError } from './core/types.js'
 export { AGENTS, getAgent, getAgentIds, detectInstalledAgents, resolveAgentDirs } from './core/agents.js'
 export type {
   SkilltapConfig,
+  SourceConfig,
+  SourceEntry,
   TapSource,
   SkillMeta,
   RemoteSkill,

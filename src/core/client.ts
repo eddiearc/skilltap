@@ -1,24 +1,27 @@
 import type {
   SkilltapConfig,
+  SourceEntry,
   TapSource,
   RemoteSkill,
   InstalledSkill,
 } from './types.js'
 import { SkillConflictError } from './types.js'
-import { parseSource, listRepoDirs, getSkillMd, parseFrontmatter } from './github.js'
+import { parseSource, parseSourceEntry, resolveToken, listRepoDirs, getSkillMd, parseFrontmatter } from './github.js'
 import { installSkill, uninstallSkill, listInstalled } from './installer.js'
 import { resolveAgentDirs } from './agents.js'
 
 export class Skilltap {
+  private entries: SourceEntry[]
   private sources: TapSource[]
   private installDir?: string
-  private token?: string
+  private globalToken?: string
   private symlinkDirs?: string[]
 
   constructor(config: SkilltapConfig) {
-    this.sources = config.sources.map(parseSource)
+    this.entries = config.sources
+    this.sources = config.sources.map(parseSourceEntry)
     this.installDir = config.installDir
-    this.token = config.token
+    this.globalToken = config.token
 
     // Collect symlink targets: agent dirs + custom dirs
     const dirs: string[] = []
@@ -33,15 +36,22 @@ export class Skilltap {
     }
   }
 
+  /** Resolve the effective token for a source entry */
+  private tokenFor(entry: SourceEntry): string | undefined {
+    return resolveToken(entry, this.globalToken)
+  }
+
   /** List all available skills from all sources */
   async available(): Promise<RemoteSkill[]> {
     const skills: RemoteSkill[] = []
 
-    for (const source of this.sources) {
-      const dirs = await listRepoDirs(source, this.token)
+    for (let i = 0; i < this.sources.length; i++) {
+      const source = this.sources[i]
+      const token = this.tokenFor(this.entries[i])
+      const dirs = await listRepoDirs(source, token)
 
       for (const dir of dirs) {
-        const content = await getSkillMd(source, dir, this.token)
+        const content = await getSkillMd(source, dir, token)
         if (!content) continue
 
         const meta = parseFrontmatter(content)
@@ -70,14 +80,23 @@ export class Skilltap {
     // Explicit source specified — skip conflict detection
     if (opts?.from) {
       const source = parseSource(opts.from)
-      return installSkill(source, skillName, this.installDir, this.token, this.symlinkDirs)
+      // Find matching entry for token resolution
+      const matchEntry = this.entries.find(
+        (e) => {
+          const repo = typeof e === 'string' ? e : e.repo
+          return repo === opts.from
+        },
+      )
+      const token = matchEntry ? this.tokenFor(matchEntry) : this.globalToken
+      return installSkill(source, skillName, this.installDir, token, this.symlinkDirs)
     }
 
     // Find all sources that have this skill
-    const matches: TapSource[] = []
-    for (const source of this.sources) {
-      const content = await getSkillMd(source, skillName, this.token)
-      if (content) matches.push(source)
+    const matches: { source: TapSource; entry: SourceEntry }[] = []
+    for (let i = 0; i < this.sources.length; i++) {
+      const token = this.tokenFor(this.entries[i])
+      const content = await getSkillMd(this.sources[i], skillName, token)
+      if (content) matches.push({ source: this.sources[i], entry: this.entries[i] })
     }
 
     if (matches.length === 0) {
@@ -87,11 +106,12 @@ export class Skilltap {
     if (matches.length > 1) {
       throw new SkillConflictError(
         skillName,
-        matches.map((s) => `${s.owner}/${s.repo}`),
+        matches.map((m) => `${m.source.owner}/${m.source.repo}`),
       )
     }
 
-    return installSkill(matches[0], skillName, this.installDir, this.token, this.symlinkDirs)
+    const token = this.tokenFor(matches[0].entry)
+    return installSkill(matches[0].source, skillName, this.installDir, token, this.symlinkDirs)
   }
 
   /** Uninstall a skill */
