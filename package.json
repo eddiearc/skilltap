@@ -1,0 +1,52 @@
+{
+  "name": "skilltap",
+  "version": "0.1.0",
+  "description": "Install AI agent skills from GitHub repos. One repo = one skill tap.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "skilltap": "./dist/cli/index.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "eslint src/",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "prepublishOnly": "pnpm build"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "skills",
+    "github",
+    "marketplace",
+    "claude",
+    "codex",
+    "SKILL.md"
+  ],
+  "license": "MIT",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "commander": "^13.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.1.0",
+    "eslint": "^9.25.0"
+  }
+}
