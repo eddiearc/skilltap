@@ -31,10 +31,11 @@ jobs:
       - name: Set version from tag
         run: npm version ${GITHUB_REF_NAME#v} --no-git-tag-version
 
+      - name: Upgrade npm for Trusted Publishing
+        run: npm install -g npm@latest
+
       - name: Publish to npm
-        run: |
-          sed -i '/_authToken/d' "$NPM_CONFIG_USERCONFIG"
-          npm publish --access public --provenance
+        run: npm publish --access public
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
