@@ -28,9 +28,11 @@ export interface Marketplace {
   /** Unique marketplace name */
   name: string
   /** Source type */
-  type: 'github' | 'url' | 'local'
+  type: 'github' | 'git' | 'url' | 'local'
   /** GitHub repo for 'github' type */
   repo?: string
+  /** Git URL for 'git' type (git@host:owner/repo.git or https://...) */
+  gitUrl?: string
   /** URL for 'url' type */
   url?: string
   /** Local path for 'local' type */
@@ -82,8 +84,10 @@ export interface MarketplaceConfig {
 
 /** Marketplace config entry */
 export interface MarketplaceConfigEntry {
-  type: 'github' | 'url' | 'local'
+  type: 'github' | 'git' | 'url' | 'local'
   repo?: string
+  /** Git URL for 'git' type */
+  gitUrl?: string
   url?: string
   path?: string
   branch?: string
