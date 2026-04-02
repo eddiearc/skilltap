@@ -6,6 +6,14 @@ import { getCliVersion } from './version.js'
 import { SkillConflictError } from '../core/types.js'
 import type { SkilltapConfigFile, SourceEntry } from '../core/types.js'
 import { sourceEntryRepo } from '../core/github.js'
+import {
+  createMarketplaceCommands,
+  createBrowseCommand,
+  createSearchCommand,
+  createInstallCommand,
+  createUninstallCommand,
+  createListCommand,
+} from './marketplace.js'
 
 const program = new Command()
 
@@ -57,105 +65,6 @@ program
   })
 
 program
-  .command('search <keyword>')
-  .description('Search for skills across all sources')
-  .action(async (keyword: string) => {
-    const config = await loadConfig()
-    const st = new Skilltap(config)
-    const results = await st.search(keyword)
-
-    if (results.length === 0) {
-      console.log('No skills found')
-      return
-    }
-
-    for (const skill of results) {
-      const source = `${skill.source.owner}/${skill.source.repo}`
-      console.log(`  ${skill.name} — ${skill.meta.description} (${source})`)
-    }
-  })
-
-program
-  .command('install <name>')
-  .description('Install a skill')
-  .option('-g, --global', 'Symlink to all detected agents')
-  .option('-a, --agent <ids...>', 'Symlink to specific agent(s) (e.g. claude-code cursor)')
-  .option('-d, --dir <paths...>', 'Symlink to custom directory(s)')
-  .option('--from <source>', 'Install from a specific source (e.g. anthropics/skills)')
-  .action(async (name: string, opts: { global?: boolean; agent?: string[]; dir?: string[]; from?: string }) => {
-    const config = await loadConfig()
-    await resolveAgentOpts(config, opts)
-
-    const st = new Skilltap(config)
-
-    try {
-      const skill = await st.install(name, { from: opts.from })
-      console.log(`Installed: ${skill.name} → ${skill.path}`)
-
-      // Show symlink results
-      const allDirs: string[] = []
-      if (config.agents?.length) allDirs.push(...resolveAgentDirs(config.agents))
-      if (config.dirs?.length) allDirs.push(...config.dirs)
-      const linked = allDirs.filter((d) => d !== config.installDir)
-
-      if (linked.length > 0) {
-        console.log(`Symlinked to ${linked.length} target(s):`)
-        for (const dir of linked) {
-          console.log(`  → ${dir}/${name}`)
-        }
-      } else {
-        console.log('')
-        console.log('Tip: use -g to symlink to all agents, or -a to pick specific ones:')
-        console.log('  skilltap install <name> -g')
-        console.log('  skilltap install <name> -a claude-code cursor')
-      }
-    } catch (err) {
-      if (err instanceof SkillConflictError) {
-        console.error(`Multiple skills found for "${name}":`)
-        for (const source of err.sources) {
-          console.error(`  - ${source}`)
-        }
-        console.error(`\nUse --from to specify: skilltap install ${name} --from <owner/repo>`)
-        process.exit(1)
-      }
-      throw err
-    }
-  })
-
-program
-  .command('uninstall <name>')
-  .description('Uninstall a skill')
-  .option('-g, --global', 'Remove symlinks from all detected agents')
-  .option('-a, --agent <ids...>', 'Remove symlinks from specific agent(s)')
-  .option('-d, --dir <paths...>', 'Remove symlinks from custom directory(s)')
-  .action(async (name: string, opts: { global?: boolean; agent?: string[]; dir?: string[] }) => {
-    const config = await loadConfig()
-    await resolveAgentOpts(config, opts)
-
-    const st = new Skilltap(config)
-    await st.uninstall(name)
-    console.log(`Uninstalled: ${name}`)
-  })
-
-program
-  .command('list')
-  .description('List installed skills')
-  .action(async () => {
-    const config = await loadConfig()
-    const st = new Skilltap(config)
-    const skills = await st.list()
-
-    if (skills.length === 0) {
-      console.log('No skills installed')
-      return
-    }
-
-    for (const skill of skills) {
-      console.log(`  ${skill.name} — ${skill.meta.description}`)
-    }
-  })
-
-program
   .command('update')
   .description('Update all installed skills')
   .option('-g, --global', 'Also update symlinks for all detected agents')
@@ -200,5 +109,13 @@ program
 
     console.log(`\n  ${detected.length} agent(s) detected`)
   })
+
+// Marketplace commands
+createMarketplaceCommands(program)
+createBrowseCommand(program)
+createSearchCommand(program)
+createInstallCommand(program)
+createUninstallCommand(program)
+createListCommand(program)
 
 program.parse()
