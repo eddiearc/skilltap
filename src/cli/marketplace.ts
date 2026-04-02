@@ -59,6 +59,15 @@ export function createMarketplaceCommands(program: Command): void {
           const repo = source.slice('github/'.length)
           await addMarketplace(name, 'github', { repo, branch: opts.branch, token: opts.token, scanPath: opts.scanPath })
           console.log(`Added marketplace "${name}" from GitHub: ${repo}`)
+        } else if (
+          source.endsWith('.git') ||
+          source.startsWith('git@') ||
+          source.startsWith('ssh://') ||
+          source.startsWith('git://')
+        ) {
+          // Git URL (SSH, https with .git suffix, git protocol)
+          await addMarketplace(name, 'git', { gitUrl: source, branch: opts.branch, scanPath: opts.scanPath })
+          console.log(`Added marketplace "${name}" from git: ${source}`)
         } else if (source.includes('/') && source.split('/').length === 2) {
           // owner/repo format (exactly 2 parts)
           await addMarketplace(name, 'github', { repo: source, branch: opts.branch, token: opts.token, scanPath: opts.scanPath })
@@ -69,6 +78,7 @@ export function createMarketplaceCommands(program: Command): void {
           console.error('  github/owner/repo  - GitHub repo with prefix')
           console.error('  owner/repo        - GitHub repo (owner/name format)')
           console.error('  https://...       - URL source')
+          console.error('  git@host:...       - Git SSH URL')
           console.error('  /path/to/dir     - Local directory')
           process.exit(1)
         }

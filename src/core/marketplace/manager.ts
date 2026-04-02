@@ -11,6 +11,7 @@ import os from 'node:os'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { findSkills } from '../github.js'
+import { cloneOrUpdate, getCachePathForUrl } from '../git.js'
 
 const execFileAsync = promisify(execFile)
 import type { 
@@ -68,8 +69,8 @@ async function saveMarketplaceConfig(config: MarketplaceConfig): Promise<void> {
 /** Add a marketplace */
 export async function addMarketplace(
   name: string,
-  type: 'github' | 'url' | 'local',
-  options: { repo?: string; url?: string; path?: string; branch?: string; token?: string; scanPath?: string } = {}
+  type: 'github' | 'git' | 'url' | 'local',
+  options: { repo?: string; gitUrl?: string; url?: string; path?: string; branch?: string; token?: string; scanPath?: string } = {}
 ): Promise<Marketplace> {
   const config = await loadMarketplaceConfig()
   
@@ -98,12 +99,20 @@ export async function removeMarketplace(name: string): Promise<void> {
     throw new Error(`Marketplace "${name}" not found`)
   }
 
+  const marketplace = config.marketplaces[name]
+
   delete config.marketplaces[name]
   await saveMarketplaceConfig(config)
   
-  // Remove cache
+  // Remove manifest cache
   const cachePath = path.join(getCacheDir(), `${name}.json`)
   await fs.rm(cachePath, { force: true })
+
+  // Remove git clone cache if git-type marketplace
+  if (marketplace.type === 'git' && marketplace.gitUrl) {
+    const gitCachePath = getCachePathForUrl(marketplace.gitUrl)
+    await fs.rm(gitCachePath, { recursive: true, force: true })
+  }
 }
 
 /** List all marketplaces */
@@ -176,6 +185,24 @@ export async function discoverSkillsFromMarketplace(
   } else if (marketplace.type === 'local' && marketplace.path) {
     // Local marketplace - scan directory for SKILL.md files
     await scanLocalSkills(marketplace.path, skills)
+  } else if (marketplace.type === 'git' && marketplace.gitUrl) {
+    // Git marketplace - clone and scan
+    const isGit = await import('../git.js').then(m => m.isGitInstalled()).catch(() => false)
+    if (!isGit) {
+      throw new Error('git is not installed. Please install git to use git-type marketplaces.')
+    }
+    try {
+      const localPath = await cloneOrUpdate(marketplace.gitUrl, {
+        branch: marketplace.branch,
+        shallow: true,
+      })
+      const scanRoot = marketplace.scanPath
+        ? path.join(localPath, marketplace.scanPath)
+        : localPath
+      await scanLocalSkills(scanRoot, skills)
+    } catch (error) {
+      console.error(`Failed to discover skills from ${marketplace.name}:`, error)
+    }
   }
   
   return skills
