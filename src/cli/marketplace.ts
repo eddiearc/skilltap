@@ -43,7 +43,8 @@ export function createMarketplaceCommands(program: Command): void {
     .description('Add a marketplace (e.g., skilltap marketplace add myskills github/anthropics/skills)')
     .option('-b, --branch <branch>', 'Branch for GitHub repos')
     .option('-t, --token <token>', 'GitHub token for private repos')
-    .action(async (name: string, source: string, opts: { branch?: string; token?: string }) => {
+    .option('-s, --scan-path <path>', 'Custom path within repo to scan for skills (e.g. .agents/skills)')
+    .action(async (name: string, source: string, opts: { branch?: string; token?: string; scanPath?: string }) => {
       try {
         // Parse source format: github/owner/repo, url/http://..., or local/path
         if (source.startsWith('http://') || source.startsWith('https://')) {
@@ -56,11 +57,11 @@ export function createMarketplaceCommands(program: Command): void {
         } else if (source.startsWith('github/')) {
           // github/owner/repo format
           const repo = source.slice('github/'.length)
-          await addMarketplace(name, 'github', { repo, branch: opts.branch, token: opts.token })
+          await addMarketplace(name, 'github', { repo, branch: opts.branch, token: opts.token, scanPath: opts.scanPath })
           console.log(`Added marketplace "${name}" from GitHub: ${repo}`)
         } else if (source.includes('/') && source.split('/').length === 2) {
           // owner/repo format (exactly 2 parts)
-          await addMarketplace(name, 'github', { repo: source, branch: opts.branch, token: opts.token })
+          await addMarketplace(name, 'github', { repo: source, branch: opts.branch, token: opts.token, scanPath: opts.scanPath })
           console.log(`Added marketplace "${name}" from GitHub: ${source}`)
         } else {
           console.error(`Invalid source format: ${source}`)

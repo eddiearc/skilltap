@@ -41,6 +41,8 @@ export interface Marketplace {
   autoUpdate?: boolean
   /** GitHub token for private repos */
   token?: string
+  /** Custom path within the repo to scan for skills (e.g. '.agents/skills') */
+  scanPath?: string
   /** When this marketplace was added */
   addedAt: string
 }
@@ -88,6 +90,8 @@ export interface MarketplaceConfigEntry {
   autoUpdate?: boolean
   /** GitHub token for private repos */
   token?: string
+  /** Custom path within the repo to scan for skills (e.g. '.agents/skills') */
+  scanPath?: string
   addedAt: string
 }
 

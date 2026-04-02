@@ -69,7 +69,7 @@ async function saveMarketplaceConfig(config: MarketplaceConfig): Promise<void> {
 export async function addMarketplace(
   name: string,
   type: 'github' | 'url' | 'local',
-  options: { repo?: string; url?: string; path?: string; branch?: string; token?: string } = {}
+  options: { repo?: string; url?: string; path?: string; branch?: string; token?: string; scanPath?: string } = {}
 ): Promise<Marketplace> {
   const config = await loadMarketplaceConfig()
   
@@ -155,7 +155,7 @@ export async function discoverSkillsFromMarketplace(
       const discovered = await findSkills(
         { owner, repo, branch: marketplace.branch },
         token,
-        '' // repo root
+        marketplace.scanPath ?? '' // repo root or custom scan path
       )
       
       for (const skill of discovered) {
