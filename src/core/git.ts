@@ -8,7 +8,9 @@ import { existsSync } from 'node:fs'
 
 const execFileAsync = promisify(execFile)
 
-function normalizeGitUrl(gitUrl: string): string {
+const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '' }
+
+export function normalizeGitUrl(gitUrl: string): string {
   // Convert SSH URLs to HTTPS URLs for reliability
   // git@github.com:owner/repo.git -> https://github.com/owner/repo.git
   const sshMatch = gitUrl.match(/^git@([^:]+):(.+?)(?:\.git)?$/i)
@@ -47,6 +49,7 @@ export async function cloneOrUpdate(
       const branchArgs = opts.branch ? [opts.branch] : []
       await execFileAsync('git', ['-C', cachePath, 'pull', '--ff-only', ...branchArgs], {
         timeout: 30000,
+        env: gitEnv,
       })
       return cachePath
     } catch {
@@ -65,7 +68,7 @@ export async function cloneOrUpdate(
   args.push(normalizedUrl, cachePath)
 
   try {
-    await execFileAsync('git', args, { timeout: 120000 })
+    await execFileAsync('git', args, { timeout: 120000, env: gitEnv })
     return cachePath
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -75,7 +78,7 @@ export async function cloneOrUpdate(
 
 export async function isGitInstalled(): Promise<boolean> {
   try {
-    await execFileAsync('git', ['--version'], { timeout: 5000 })
+    await execFileAsync('git', ['--version'], { timeout: 5000, env: gitEnv })
     return true
   } catch {
     return false

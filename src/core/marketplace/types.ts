@@ -15,10 +15,10 @@ export interface SkillEntry {
   argumentHint?: string
   /** Path to the skill directory in the marketplace */
   path: string
-  /** Source repository info */
+  /** Source info */
   source: {
-    owner: string
-    repo: string
+    gitUrl?: string
+    localPath?: string
     branch?: string
   }
 }
@@ -28,21 +28,15 @@ export interface Marketplace {
   /** Unique marketplace name */
   name: string
   /** Source type */
-  type: 'github' | 'git' | 'url' | 'local'
-  /** GitHub repo for 'github' type */
-  repo?: string
-  /** Git URL for 'git' type (git@host:owner/repo.git or https://...) */
+  type: 'git' | 'local'
+  /** Git URL for 'git' type (https://... or git@host:owner/repo.git) */
   gitUrl?: string
-  /** URL for 'url' type */
-  url?: string
   /** Local path for 'local' type */
   path?: string
-  /** Optional branch for GitHub */
+  /** Optional branch */
   branch?: string
   /** Auto-update enabled */
   autoUpdate?: boolean
-  /** GitHub token for private repos */
-  token?: string
   /** Custom path within the repo to scan for skills (e.g. '.agents/skills') */
   scanPath?: string
   /** When this marketplace was added */
@@ -82,18 +76,18 @@ export interface MarketplaceConfig {
   marketplaces: Record<string, MarketplaceConfigEntry>
 }
 
-/** Marketplace config entry */
+/** Marketplace config entry (on disk — may contain legacy 'github' type) */
 export interface MarketplaceConfigEntry {
-  type: 'github' | 'git' | 'url' | 'local'
+  type: 'github' | 'git' | 'local'
+  /** @deprecated Legacy GitHub repo field, migrated to gitUrl */
   repo?: string
   /** Git URL for 'git' type */
   gitUrl?: string
-  url?: string
+  /** @deprecated Legacy token field */
+  token?: string
   path?: string
   branch?: string
   autoUpdate?: boolean
-  /** GitHub token for private repos */
-  token?: string
   /** Custom path within the repo to scan for skills (e.g. '.agents/skills') */
   scanPath?: string
   addedAt: string

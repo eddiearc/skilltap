@@ -1,3 +1,7 @@
+/**
+ * @deprecated This module uses the GitHub API directly. New code should use
+ * the git-based marketplace system in marketplace/manager.ts instead.
+ */
 import type { TapSource, SkillMeta, SourceEntry, DiscoveredSkill } from './types.js'
 
 const GITHUB_API = 'https://api.github.com'
@@ -44,11 +48,51 @@ function headers(token?: string): Record<string, string> {
   return h
 }
 
-/** Parse "owner/repo" string into TapSource */
+/**
+ * Normalize any GitHub repo identifier to "owner/repo".
+ *
+ * Accepted formats:
+ *   owner/repo
+ *   https://github.com/owner/repo[.git][/tree/branch/...]
+ *   git@github.com:owner/repo[.git]
+ *   git://github.com/owner/repo[.git]
+ *   ssh://git@github.com/owner/repo[.git]
+ */
+export function normalizeGitHubSource(raw: string): string {
+  let input = raw.trim()
+
+  // SSH shorthand: git@github.com:owner/repo.git
+  const sshShort = input.match(/^git@[^:]+:(.+)$/)
+  if (sshShort) input = sshShort[1]
+
+  // URL protocols: https://, git://, ssh://
+  if (/^[a-z+]+:\/\//i.test(input)) {
+    try {
+      const url = new URL(input)
+      input = url.pathname
+    } catch {
+      // not a valid URL, treat as path
+    }
+  }
+
+  // Strip leading slash, trailing slash, .git suffix, query, hash
+  input = input.replace(/^\/+/, '').replace(/\.git\/?$/, '').replace(/[?#].*$/, '').replace(/\/+$/, '')
+
+  // Strip /tree/... /blob/... /commit/... suffixes (GitHub sub-paths)
+  input = input.replace(/\/(tree|blob|commit|releases|issues|pull|actions|settings)(\/.*)?$/, '')
+
+  const parts = input.split('/')
+  if (parts.length < 2 || !parts[0] || !parts[1]) {
+    throw new Error(`Invalid source: "${raw}", expected "owner/repo" or a GitHub URL`)
+  }
+  return `${parts[0]}/${parts[1]}`
+}
+
+/** Parse any GitHub repo identifier into TapSource */
 export function parseSource(source: string): TapSource {
-  const [owner, repo] = source.split('/')
-  if (!owner || !repo) throw new Error(`Invalid source: "${source}", expected "owner/repo"`)
-  return { owner, repo }
+  const normalized = normalizeGitHubSource(source)
+  const [owner, repo] = normalized.split('/')
+  return { owner: owner!, repo: repo! }
 }
 
 /** Parse a SourceEntry (string or SourceConfig) into TapSource */

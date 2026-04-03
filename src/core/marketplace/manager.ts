@@ -8,20 +8,15 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
-import { findSkills } from '../github.js'
 import { cloneOrUpdate, getCachePathForUrl } from '../git.js'
 
-const execFileAsync = promisify(execFile)
-import type { 
-  Marketplace, 
-  MarketplaceConfig, 
-  MarketplaceManifest, 
+import type {
+  Marketplace,
+  MarketplaceConfig,
+  MarketplaceConfigEntry,
+  MarketplaceManifest,
   SkillEntry,
-  MarketplaceConfigSchema 
 } from './types.js'
-import { parseSkillIdentifier } from './types.js'
 
 const CONFIG_FILE = 'marketplaces.json'
 const CACHE_DIR = 'marketplaces'
@@ -47,13 +42,42 @@ async function ensureConfigDir(): Promise<void> {
   await fs.mkdir(getCacheDir(), { recursive: true })
 }
 
-/** Load marketplace config */
+/** Migrate legacy github-type entries to git-type */
+function migrateEntry(entry: MarketplaceConfigEntry): MarketplaceConfigEntry {
+  if (entry.type === 'github' && entry.repo) {
+    return {
+      ...entry,
+      type: 'git',
+      gitUrl: `https://github.com/${entry.repo}.git`,
+      repo: undefined,
+      token: undefined,
+    }
+  }
+  return entry
+}
+
+/** Load marketplace config (with auto-migration of legacy entries) */
 export async function loadMarketplaceConfig(): Promise<MarketplaceConfig> {
   await ensureConfigDir()
   const configPath = getConfigPath()
   try {
     const content = await fs.readFile(configPath, 'utf-8')
-    return JSON.parse(content)
+    const config: MarketplaceConfig = JSON.parse(content)
+
+    // Migrate legacy github entries
+    let migrated = false
+    for (const [name, entry] of Object.entries(config.marketplaces)) {
+      const updated = migrateEntry(entry as MarketplaceConfigEntry)
+      if (updated !== entry) {
+        config.marketplaces[name] = updated
+        migrated = true
+      }
+    }
+    if (migrated) {
+      await fs.writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8')
+    }
+
+    return config
   } catch {
     return { version: '1.0', marketplaces: {} }
   }
@@ -69,124 +93,77 @@ async function saveMarketplaceConfig(config: MarketplaceConfig): Promise<void> {
 /** Add a marketplace */
 export async function addMarketplace(
   name: string,
-  type: 'github' | 'git' | 'url' | 'local',
-  options: { repo?: string; gitUrl?: string; url?: string; path?: string; branch?: string; token?: string; scanPath?: string } = {}
+  type: 'git' | 'local',
+  options: { gitUrl?: string; path?: string; branch?: string; scanPath?: string } = {}
 ): Promise<Marketplace> {
   const config = await loadMarketplaceConfig()
-  
+
   if (config.marketplaces[name]) {
     throw new Error(`Marketplace "${name}" already exists`)
   }
 
-  const marketplace: Marketplace = {
-    name,
+  const entry: MarketplaceConfigEntry = {
     type,
     addedAt: new Date().toISOString(),
     ...options,
   }
 
-  config.marketplaces[name] = marketplace
+  config.marketplaces[name] = entry
   await saveMarketplaceConfig(config)
-  
-  return marketplace
+
+  return { name, ...entry } as Marketplace
 }
 
 /** Remove a marketplace */
 export async function removeMarketplace(name: string): Promise<void> {
   const config = await loadMarketplaceConfig()
-  
+
   if (!config.marketplaces[name]) {
     throw new Error(`Marketplace "${name}" not found`)
   }
 
-  const marketplace = config.marketplaces[name]
+  const entry = config.marketplaces[name]
 
   delete config.marketplaces[name]
   await saveMarketplaceConfig(config)
-  
+
   // Remove manifest cache
   const cachePath = path.join(getCacheDir(), `${name}.json`)
   await fs.rm(cachePath, { force: true })
 
-  // Remove git clone cache if git-type marketplace
-  if (marketplace.type === 'git' && marketplace.gitUrl) {
-    const gitCachePath = getCachePathForUrl(marketplace.gitUrl)
+  // Remove git clone cache
+  if (entry.gitUrl) {
+    const gitCachePath = getCachePathForUrl(entry.gitUrl)
     await fs.rm(gitCachePath, { recursive: true, force: true })
   }
+}
+
+/** Convert config entry to Marketplace with name */
+function toMarketplace(name: string, entry: MarketplaceConfigEntry): Marketplace {
+  return { name, type: entry.type as 'git' | 'local', ...entry }
 }
 
 /** List all marketplaces */
 export async function listMarketplaces(): Promise<Marketplace[]> {
   const config = await loadMarketplaceConfig()
-  return Object.values(config.marketplaces)
+  return Object.entries(config.marketplaces).map(([name, entry]) => toMarketplace(name, entry))
 }
 
 /** Get a specific marketplace */
 export async function getMarketplace(name: string): Promise<Marketplace | null> {
   const config = await loadMarketplaceConfig()
-  return config.marketplaces[name] ?? null
+  const entry = config.marketplaces[name]
+  if (!entry) return null
+  return toMarketplace(name, entry)
 }
 
-/** Resolve a GitHub token from marketplace config, env var, or gh CLI */
-async function resolveGitHubToken(marketplace: Marketplace): Promise<string | undefined> {
-  // 1. Per-marketplace token
-  if (marketplace.token) return marketplace.token
-
-  // 2. Environment variable
-  if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN
-
-  // 3. gh auth token
-  try {
-    const { stdout } = await execFileAsync('gh', ['auth', 'token'], { timeout: 5000 })
-    const token = stdout.trim()
-    if (token) return token
-  } catch {
-    // gh CLI not installed or not authenticated
-  }
-
-  return undefined
-}
-
-/** Discover skills from a marketplace by fetching its manifest or scanning repos */
+/** Discover skills from a marketplace by cloning/scanning */
 export async function discoverSkillsFromMarketplace(
   marketplace: Marketplace
 ): Promise<SkillEntry[]> {
   const skills: SkillEntry[] = []
 
-  if (marketplace.type === 'github' && marketplace.repo) {
-    const [owner, repo] = marketplace.repo.split('/')
-    if (!owner || !repo) {
-      throw new Error(`Invalid marketplace repo: ${marketplace.repo}`)
-    }
-
-    try {
-      const token = await resolveGitHubToken(marketplace)
-      const discovered = await findSkills(
-        { owner, repo, branch: marketplace.branch },
-        token,
-        marketplace.scanPath ?? '' // repo root or custom scan path
-      )
-      
-      for (const skill of discovered) {
-        skills.push({
-          name: skill.meta.name || skill.name,
-          description: skill.meta.description || '',
-          author: skill.meta.author,
-          version: skill.meta.version,
-          license: skill.meta.license,
-          argumentHint: skill.meta.argumentHint,
-          path: skill.path,
-          source: { owner, repo, branch: marketplace.branch },
-        })
-      }
-    } catch (error) {
-      console.error(`Failed to discover skills from ${marketplace.name}:`, error)
-    }
-  } else if (marketplace.type === 'local' && marketplace.path) {
-    // Local marketplace - scan directory for SKILL.md files
-    await scanLocalSkills(marketplace.path, skills)
-  } else if (marketplace.type === 'git' && marketplace.gitUrl) {
-    // Git marketplace - clone and scan
+  if (marketplace.type === 'git' && marketplace.gitUrl) {
     const isGit = await import('../git.js').then(m => m.isGitInstalled()).catch(() => false)
     if (!isGit) {
       throw new Error('git is not installed. Please install git to use git-type marketplaces.')
@@ -199,26 +176,34 @@ export async function discoverSkillsFromMarketplace(
       const scanRoot = marketplace.scanPath
         ? path.join(localPath, marketplace.scanPath)
         : localPath
-      await scanLocalSkills(scanRoot, skills)
+      await scanLocalSkills(scanRoot, skills, '', marketplace.gitUrl, marketplace.branch)
     } catch (error) {
       console.error(`Failed to discover skills from ${marketplace.name}:`, error)
     }
+  } else if (marketplace.type === 'local' && marketplace.path) {
+    await scanLocalSkills(marketplace.path, skills, '', undefined, undefined)
   }
-  
+
   return skills
 }
 
 /** Recursively scan a local directory for skills */
-async function scanLocalSkills(dirPath: string, skills: SkillEntry[], basePath = ''): Promise<void> {
+async function scanLocalSkills(
+  dirPath: string,
+  skills: SkillEntry[],
+  basePath = '',
+  gitUrl?: string,
+  branch?: string,
+): Promise<void> {
   try {
     const entries = await fs.readdir(dirPath, { withFileTypes: true })
-    
+
     for (const entry of entries) {
       if (!entry.isDirectory() || entry.name.startsWith('.')) continue
-      
+
       const fullPath = path.join(dirPath, entry.name)
       const skillMdPath = path.join(fullPath, 'SKILL.md')
-      
+
       try {
         const content = await fs.readFile(skillMdPath, 'utf-8')
         const meta = parseFrontmatter(content)
@@ -231,12 +216,13 @@ async function scanLocalSkills(dirPath: string, skills: SkillEntry[], basePath =
             license: meta.license,
             argumentHint: meta.argumentHint,
             path: basePath ? `${basePath}/${entry.name}` : entry.name,
-            source: { owner: '', repo: '' }, // Local skills don't have source
+            source: { gitUrl, localPath: gitUrl ? undefined : dirPath, branch },
           })
         }
       } catch {
         // No SKILL.md, recurse into subdirectory
-        await scanLocalSkills(fullPath, skills, basePath ? `${basePath}/${entry.name}` : entry.name)
+        const nextBase = basePath ? `${basePath}/${entry.name}` : entry.name
+        await scanLocalSkills(fullPath, skills, nextBase, gitUrl, branch)
       }
     }
   } catch {

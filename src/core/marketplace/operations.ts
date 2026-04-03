@@ -8,20 +8,19 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
-import { installSkill, uninstallSkill, listInstalled } from '../installer.js'
+import { uninstallSkill } from '../installer.js'
+import { getCachePathForUrl, normalizeGitUrl } from '../git.js'
 import { parseSkillIdentifier } from './types.js'
-import type { 
-  Marketplace, 
-  SkillEntry, 
-  InstallResult, 
+import type {
+  Marketplace,
+  SkillEntry,
+  InstallResult,
   UninstallResult,
-  MarketplaceManifest 
 } from './types.js'
-import { 
-  listMarketplaces, 
-  getMarketplace, 
+import {
+  getMarketplace,
   getMarketplaceManifest,
-  searchSkill as searchMarketplaceSkill 
+  searchSkill as searchMarketplaceSkill,
 } from './manager.js'
 
 const INSTALLED_FILE = 'installed_skills.json'
@@ -195,55 +194,62 @@ async function installSkillFromEntry(
   skill: SkillEntry,
   marketplace: Marketplace,
   installDir?: string,
-  scope: 'user' | 'project' = 'user'
+  _scope: 'user' | 'project' = 'user'
 ): Promise<InstallResult> {
   try {
-    // Handle local marketplace
     if (marketplace.type === 'local' && marketplace.path) {
       return installFromLocalPath(skill, marketplace.name, marketplace.path, installDir)
     }
-    
-    // Handle GitHub marketplace
-    const { owner, repo, branch } = skill.source
-    
-    if (!owner || !repo) {
+
+    // Git marketplace — copy from git cache
+    if (marketplace.type === 'git' && marketplace.gitUrl) {
+      const cachePath = getCachePathForUrl(normalizeGitUrl(marketplace.gitUrl))
+      const scanPath = marketplace.scanPath ?? ''
+      const sourcePath = path.join(cachePath, scanPath, skill.path)
+      const targetDir = installDir ?? path.join(os.homedir(), '.agents', 'skills')
+      const destPath = path.join(targetDir, skill.name)
+
+      try {
+        await fs.access(path.join(sourcePath, 'SKILL.md'))
+      } catch {
+        return {
+          success: false,
+          message: `Skill "${skill.name}" not found in git cache at: ${sourcePath}`,
+        }
+      }
+
+      await fs.mkdir(targetDir, { recursive: true })
+      await copyDir(sourcePath, destPath)
+
+      // Record installation
+      const installed_data = await loadInstalledSkills()
+      const records = installed_data[skill.name] ?? []
+      const filteredRecords = records.filter(r => r.marketplace !== marketplace.name)
+
+      filteredRecords.push({
+        name: skill.name,
+        marketplace: marketplace.name,
+        version: skill.version,
+        installedAt: new Date().toISOString(),
+        lastUpdated: new Date().toISOString(),
+        installPath: destPath,
+      })
+
+      installed_data[skill.name] = filteredRecords
+      await saveInstalledSkills(installed_data)
+
       return {
-        success: false,
-        message: `Skill "${skill.name}" does not have valid source information`,
+        success: true,
+        message: `Successfully installed skill "${skill.name}" from marketplace "${marketplace.name}"`,
+        skillName: skill.name,
+        path: destPath,
+        marketplace: marketplace.name,
       }
     }
-    
-    const installed = await installSkill(
-      { owner, repo, branch },
-      skill.name,
-      installDir
-    )
-    
-    // Record installation
-    const installed_data = await loadInstalledSkills()
-    const records = installed_data[skill.name] ?? []
-    
-    // Remove existing record for same scope if exists
-    const filteredRecords = records.filter(r => r.marketplace !== marketplaceName)
-    
-    filteredRecords.push({
-      name: skill.name,
-      marketplace: marketplaceName,
-      version: skill.version,
-      installedAt: new Date().toISOString(),
-      lastUpdated: new Date().toISOString(),
-      installPath: installed.path,
-    })
-    
-    installed_data[skill.name] = filteredRecords
-    await saveInstalledSkills(installed_data)
-    
+
     return {
-      success: true,
-      message: `Successfully installed skill "${skill.name}" from marketplace "${marketplaceName}"`,
-      skillName: skill.name,
-      path: installed.path,
-      marketplace: marketplaceName,
+      success: false,
+      message: `Unsupported marketplace type: ${marketplace.type}`,
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)

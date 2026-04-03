@@ -29,10 +29,9 @@ export function createMarketplaceCommands(program: Command): void {
       
       console.log(`Configured marketplaces (${marketplaces.length}):\n`)
       for (const mkt of marketplaces) {
-        const source = mkt.type === 'github' ? mkt.repo : mkt.type === 'url' ? mkt.url : mkt.path
         console.log(`  ${mkt.name}`)
         console.log(`    Type: ${mkt.type}`)
-        console.log(`    Source: ${source}`)
+        console.log(`    Source: ${mkt.gitUrl ?? mkt.path ?? 'unknown'}`)
         console.log(`    Added: ${new Date(mkt.addedAt).toLocaleDateString()}`)
         console.log('')
       }
@@ -40,46 +39,30 @@ export function createMarketplaceCommands(program: Command): void {
 
   marketplace
     .command('add <name> <source>')
-    .description('Add a marketplace (e.g., skilltap marketplace add myskills github/anthropics/skills)')
-    .option('-b, --branch <branch>', 'Branch for GitHub repos')
-    .option('-t, --token <token>', 'GitHub token for private repos')
+    .description('Add a marketplace source (git URL or local path)')
+    .option('-b, --branch <branch>', 'Branch to use')
     .option('-s, --scan-path <path>', 'Custom path within repo to scan for skills (e.g. .agents/skills)')
-    .action(async (name: string, source: string, opts: { branch?: string; token?: string; scanPath?: string }) => {
+    .action(async (name: string, source: string, opts: { branch?: string; scanPath?: string }) => {
       try {
-        // Parse source format: github/owner/repo, url/http://..., or local/path
-        if (source.startsWith('http://') || source.startsWith('https://')) {
-          await addMarketplace(name, 'url', { url: source })
-          console.log(`Added marketplace "${name}" from URL: ${source}`)
-        } else if (source.startsWith('/') || source.startsWith('.') || source.match(/^[A-Za-z]:/)) {
-          // Local path (absolute or relative)
+        if (source.startsWith('/') || source.startsWith('.') || source.match(/^[A-Za-z]:/)) {
+          // Local path
           await addMarketplace(name, 'local', { path: source })
           console.log(`Added marketplace "${name}" from local path: ${source}`)
-        } else if (source.startsWith('github/')) {
-          // github/owner/repo format
-          const repo = source.slice('github/'.length)
-          await addMarketplace(name, 'github', { repo, branch: opts.branch, token: opts.token, scanPath: opts.scanPath })
-          console.log(`Added marketplace "${name}" from GitHub: ${repo}`)
         } else if (
-          source.endsWith('.git') ||
-          source.startsWith('git@') ||
-          source.startsWith('ssh://') ||
-          source.startsWith('git://')
+          source.startsWith('http://') || source.startsWith('https://') ||
+          source.startsWith('git@') || source.startsWith('ssh://') ||
+          source.startsWith('git://') || source.endsWith('.git')
         ) {
-          // Git URL (SSH, https with .git suffix, git protocol)
+          // Git URL (HTTPS, SSH, git protocol)
           await addMarketplace(name, 'git', { gitUrl: source, branch: opts.branch, scanPath: opts.scanPath })
           console.log(`Added marketplace "${name}" from git: ${source}`)
-        } else if (source.includes('/') && source.split('/').length === 2) {
-          // owner/repo format (exactly 2 parts)
-          await addMarketplace(name, 'github', { repo: source, branch: opts.branch, token: opts.token, scanPath: opts.scanPath })
-          console.log(`Added marketplace "${name}" from GitHub: ${source}`)
         } else {
           console.error(`Invalid source format: ${source}`)
-          console.error('Examples:')
-          console.error('  github/owner/repo  - GitHub repo with prefix')
-          console.error('  owner/repo        - GitHub repo (owner/name format)')
-          console.error('  https://...       - URL source')
-          console.error('  git@host:...       - Git SSH URL')
-          console.error('  /path/to/dir     - Local directory')
+          console.error('Supported formats:')
+          console.error('  https://github.com/owner/repo  - HTTPS git URL')
+          console.error('  https://gitlab.com/owner/repo  - Any git hosting platform')
+          console.error('  git@host:owner/repo.git        - SSH git URL')
+          console.error('  /path/to/dir                   - Local directory')
           process.exit(1)
         }
       } catch (error) {
@@ -187,7 +170,7 @@ async function browseAllMarketplaces(): Promise<void> {
   if (marketplaces.length === 0) {
     console.log('No marketplaces configured.')
     console.log('\nAdd a marketplace first:')
-    console.log('  skilltap marketplace add myskills github/owner/skills-repo')
+    console.log('  skilltap marketplace add myskills https://github.com/owner/skills-repo')
     console.log('  skilltap marketplace add local /path/to/skills')
     return
   }
@@ -197,9 +180,8 @@ async function browseAllMarketplaces(): Promise<void> {
   for (const mkt of marketplaces) {
     const manifest = await getMarketplaceManifest(mkt.name)
     const skillCount = manifest?.skills.length ?? 0
-    const source = mkt.type === 'github' ? mkt.repo : mkt.type === 'url' ? mkt.url : mkt.path
     console.log(`  ${mkt.name} (${skillCount} skills)`)
-    console.log(`    Source: ${source}`)
+    console.log(`    Source: ${mkt.gitUrl ?? mkt.path ?? 'unknown'}`)
     console.log('')
   }
   
@@ -222,7 +204,7 @@ export function createSearchCommand(program: Command): void {
         console.log(`No skills found matching "${keyword}"`)
         if (!opts.marketplace) {
           console.log('\nTip: Add a marketplace first:')
-          console.log('  skilltap marketplace add myskills github/owner/skills-repo')
+          console.log('  skilltap marketplace add myskills https://github.com/owner/skills-repo')
         }
         return
       }
@@ -288,7 +270,7 @@ export function createInstallCommand(program: Command): void {
         if (results.length === 0) {
           console.error(`Skill "${skillName}" not found in any marketplace`)
           console.error('\nTip: Add a marketplace first:')
-          console.error('  skilltap marketplace add myskills github/owner/skills-repo')
+          console.error('  skilltap marketplace add myskills https://github.com/owner/skills-repo')
           process.exit(1)
         }
         
@@ -328,7 +310,7 @@ export function createUninstallCommand(program: Command): void {
       const { name: skillName, marketplace: mktFromName } = parseSkillIdentifier(name)
       const targetMarketplace = opts.marketplace ?? mktFromName
       
-      const result = await uninstallFromMarketplace(skillName, targetMarketplace)
+      const result = await uninstallFromMarketplace(skillName, targetMarketplace ?? undefined)
       
       if (!result.success) {
         console.error(`Failed to uninstall: ${result.message}`)
