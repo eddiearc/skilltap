@@ -1,6 +1,6 @@
 {
   "name": "@eddiearc/skilltap",
-  "version": "1.0.0",
+  "version": "0.7.0",
   "description": "Install AI agent skills from any git repository. One repo = one skill tap.",
   "type": "module",
   "main": "./dist/index.js",
