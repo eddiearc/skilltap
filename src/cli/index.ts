@@ -1,11 +1,10 @@
 import { Command } from 'commander'
 import { Skilltap } from '../core/client.js'
-import { AGENTS, detectInstalledAgents, resolveAgentDirs } from '../core/agents.js'
+import { AGENTS, detectInstalledAgents } from '../core/agents.js'
 import { loadConfig, saveConfig } from './config.js'
 import { getCliVersion } from './version.js'
-import { SkillConflictError } from '../core/types.js'
 import type { SkilltapConfigFile, SourceEntry } from '../core/types.js'
-import { sourceEntryRepo } from '../core/github.js'
+import { sourceEntryRepo } from '../core/source-utils.js'
 import {
   createMarketplaceCommands,
   createBrowseCommand,
@@ -40,9 +39,11 @@ async function resolveAgentOpts(
 
 program
   .command('add <repo>')
-  .description('Add a skill source (e.g. anthropics/skills)')
+  .description('[deprecated] Add a skill source — use: skilltap marketplace add <name> <repo>')
   .option('-t, --token <token>', 'GitHub PAT for this source (private repos)')
   .action(async (repo: string, opts: { token?: string }) => {
+    console.warn(`⚠️  Deprecated: "skilltap add" will be removed in a future version.`)
+    console.warn(`   Use instead: skilltap marketplace add <name> ${repo}`)
     const config = await loadConfig()
     if (config.sources.some((s) => sourceEntryRepo(s) === repo)) {
       console.log(`Source "${repo}" already added`)
@@ -56,8 +57,10 @@ program
 
 program
   .command('remove <repo>')
-  .description('Remove a skill source')
+  .description('[deprecated] Remove a skill source — use: skilltap marketplace remove <name>')
   .action(async (repo: string) => {
+    console.warn(`⚠️  Deprecated: "skilltap remove" will be removed in a future version.`)
+    console.warn(`   Use instead: skilltap marketplace remove <name>`)
     const config = await loadConfig()
     config.sources = config.sources.filter((s) => sourceEntryRepo(s) !== repo)
     await saveConfig(config)
@@ -66,11 +69,13 @@ program
 
 program
   .command('update')
-  .description('Update all installed skills')
+  .description('[deprecated] Update all installed skills — use: skilltap marketplace update')
   .option('-g, --global', 'Also update symlinks for all detected agents')
   .option('-a, --agent <ids...>', 'Also update symlinks for specific agent(s)')
   .option('-d, --dir <paths...>', 'Also update symlinks for custom directory(s)')
   .action(async (opts: { global?: boolean; agent?: string[]; dir?: string[] }) => {
+    console.warn(`⚠️  Deprecated: "skilltap update" will be removed in a future version.`)
+    console.warn(`   Use instead: skilltap marketplace update`)
     const config = await loadConfig()
     await resolveAgentOpts(config, opts)
 
@@ -81,11 +86,13 @@ program
 
 program
   .command('sources')
-  .description('List configured sources')
+  .description('[deprecated] List configured sources — use: skilltap marketplace list')
   .action(async () => {
+    console.warn(`⚠️  Deprecated: "skilltap sources" will be removed in a future version.`)
+    console.warn(`   Use instead: skilltap marketplace list`)
     const config = await loadConfig()
     if (config.sources.length === 0) {
-      console.log('No sources configured. Run: skilltap add <owner/repo>')
+      console.log('No sources configured. Run: skilltap marketplace add <name> <owner/repo>')
       return
     }
     for (const source of config.sources) {

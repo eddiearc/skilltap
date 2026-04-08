@@ -9,6 +9,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 import { cloneOrUpdate, getCachePathForUrl } from '../git.js'
+import { parseFrontmatter } from '../skill-md.js'
 
 import type {
   Marketplace,
@@ -168,18 +169,14 @@ export async function discoverSkillsFromMarketplace(
     if (!isGit) {
       throw new Error('git is not installed. Please install git to use git-type marketplaces.')
     }
-    try {
-      const localPath = await cloneOrUpdate(marketplace.gitUrl, {
-        branch: marketplace.branch,
-        shallow: true,
-      })
-      const scanRoot = marketplace.scanPath
-        ? path.join(localPath, marketplace.scanPath)
-        : localPath
-      await scanLocalSkills(scanRoot, skills, '', marketplace.gitUrl, marketplace.branch)
-    } catch (error) {
-      console.error(`Failed to discover skills from ${marketplace.name}:`, error)
-    }
+    const localPath = await cloneOrUpdate(marketplace.gitUrl, {
+      branch: marketplace.branch,
+      shallow: true,
+    })
+    const scanRoot = marketplace.scanPath
+      ? path.join(localPath, marketplace.scanPath)
+      : localPath
+    await scanLocalSkills(scanRoot, skills, '', marketplace.gitUrl, marketplace.branch)
   } else if (marketplace.type === 'local' && marketplace.path) {
     await scanLocalSkills(marketplace.path, skills, '', undefined, undefined)
   }
@@ -228,25 +225,6 @@ async function scanLocalSkills(
   } catch {
     // Directory doesn't exist or not readable
   }
-}
-
-/** Parse frontmatter from SKILL.md content */
-function parseFrontmatter(content: string): Record<string, string> | null {
-  const match = content.match(/^---\n([\s\S]*?)\n---/)
-  if (!match) return null
-
-  const meta: Record<string, string> = {}
-  for (const line of match[1].split('\n')) {
-    const idx = line.indexOf(':')
-    if (idx === -1) continue
-    const key = line.slice(0, idx).trim()
-    let val = line.slice(idx + 1).trim()
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-      val = val.slice(1, -1)
-    }
-    meta[key] = val
-  }
-  return meta.name ? meta : null
 }
 
 /** Get or cache marketplace manifest */

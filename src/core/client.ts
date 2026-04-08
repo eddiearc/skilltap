@@ -7,22 +7,38 @@ import type {
   DiscoveredSkill,
 } from './types.js'
 import { SkillConflictError } from './types.js'
-import { parseSource, parseSourceEntry, resolveToken, findSkills } from './github.js'
+import { parseSource, parseSourceEntry, tapSourceToGitUrl } from './source-utils.js'
+import { discoverSkillsFromMarketplace } from './marketplace/manager.js'
+import type { Marketplace, SkillEntry } from './marketplace/types.js'
 import { installSkill, uninstallSkill, listInstalled } from './installer.js'
 import { resolveAgentDirs } from './agents.js'
+
+/** Convert a SkillEntry from marketplace discovery to a DiscoveredSkill */
+function toDiscoveredSkill(entry: SkillEntry): DiscoveredSkill {
+  return {
+    name: entry.name,
+    meta: {
+      name: entry.name,
+      description: entry.description,
+      author: entry.author,
+      version: entry.version,
+      license: entry.license,
+      argumentHint: entry.argumentHint,
+    },
+    path: entry.path,
+  }
+}
 
 export class Skilltap {
   private entries: SourceEntry[]
   private sources: TapSource[]
   private installDir?: string
-  private globalToken?: string
   private symlinkDirs?: string[]
 
   constructor(config: SkilltapConfig) {
     this.entries = config.sources
     this.sources = config.sources.map(parseSourceEntry)
     this.installDir = config.installDir
-    this.globalToken = config.token
 
     // Collect symlink targets: agent dirs + custom dirs
     const dirs: string[] = []
@@ -37,16 +53,24 @@ export class Skilltap {
     }
   }
 
-  /** Resolve the effective token for a source entry */
-  private tokenFor(entry: SourceEntry): string | undefined {
-    return resolveToken(entry, this.globalToken)
+  /** Build a temporary Marketplace descriptor from a TapSource */
+  private sourceToMarketplace(source: TapSource): Marketplace {
+    return {
+      name: `${source.owner}/${source.repo}`,
+      type: 'git',
+      gitUrl: tapSourceToGitUrl(source),
+      branch: source.branch,
+      addedAt: new Date().toISOString(),
+    }
   }
 
   private async discoverSourceSkills(
     source: TapSource,
-    entry: SourceEntry | undefined,
+    _entry: SourceEntry | undefined,
   ): Promise<DiscoveredSkill[]> {
-    return findSkills(source, entry ? this.tokenFor(entry) : this.globalToken)
+    const marketplace = this.sourceToMarketplace(source)
+    const entries = await discoverSkillsFromMarketplace(marketplace)
+    return entries.map(toDiscoveredSkill)
   }
 
   /** List all available skills from all sources */
@@ -81,20 +105,12 @@ export class Skilltap {
     // Explicit source specified — skip conflict detection
     if (opts?.from) {
       const source = parseSource(opts.from)
-      // Find matching entry for token resolution
-      const matchEntry = this.entries.find(
-        (e) => {
-          const repo = typeof e === 'string' ? e : e.repo
-          return repo === opts.from
-        },
-      )
-      const token = matchEntry ? this.tokenFor(matchEntry) : this.globalToken
-      const discovered = await this.discoverSourceSkills(source, matchEntry)
+      const discovered = await this.discoverSourceSkills(source, undefined)
       const match = discovered.find((skill) => skill.name === skillName)
       if (!match) {
         throw new Error(`Skill "${skillName}" not found in source "${opts.from}"`)
       }
-      return installSkill(source, skillName, this.installDir, token, this.symlinkDirs, match.path)
+      return installSkill(source, skillName, this.installDir, undefined, this.symlinkDirs, match.path)
     }
 
     // Find all sources that have this skill
@@ -116,8 +132,7 @@ export class Skilltap {
       )
     }
 
-    const token = this.tokenFor(matches[0].entry)
-    return installSkill(matches[0].source, skillName, this.installDir, token, this.symlinkDirs, matches[0].skill.path)
+    return installSkill(matches[0].source, skillName, this.installDir, undefined, this.symlinkDirs, matches[0].skill.path)
   }
 
   /** Uninstall a skill */

@@ -6,7 +6,7 @@
 
 import { Command } from 'commander'
 import { listMarketplaces, addMarketplace, removeMarketplace, getMarketplaceManifest } from '../core/marketplace/manager.js'
-import { search, installFromMarketplace, uninstallFromMarketplace, listInstalledWithMarketplace } from '../core/marketplace/operations.js'
+import { search, installFromMarketplace, uninstallFromMarketplace, listInstalledWithMarketplace, updateSkill, updateAll } from '../core/marketplace/operations.js'
 import { parseSkillIdentifier } from '../core/marketplace/types.js'
 
 /** Create marketplace commands */
@@ -56,9 +56,16 @@ export function createMarketplaceCommands(program: Command): void {
           // Git URL (HTTPS, SSH, git protocol)
           await addMarketplace(name, 'git', { gitUrl: source, branch: opts.branch, scanPath: opts.scanPath })
           console.log(`Added marketplace "${name}" from git: ${source}`)
+        } else if (source.includes('/') && source.split('/').length === 2 && !source.includes(' ')) {
+          // Shorthand: owner/repo -> https://github.com/owner/repo.git
+          const gitUrl = `https://github.com/${source}.git`
+          console.log(`Cloning ${source}...`)
+          await addMarketplace(name, 'git', { gitUrl, branch: opts.branch, scanPath: opts.scanPath })
+          console.log(`Added marketplace "${name}" from GitHub: ${source}`)
         } else {
           console.error(`Invalid source format: ${source}`)
           console.error('Supported formats:')
+          console.error('  owner/repo                     - GitHub shorthand')
           console.error('  https://github.com/owner/repo  - HTTPS git URL')
           console.error('  https://gitlab.com/owner/repo  - Any git hosting platform')
           console.error('  git@host:owner/repo.git        - SSH git URL')
@@ -82,6 +89,36 @@ export function createMarketplaceCommands(program: Command): void {
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error)
         console.error(`Failed to remove marketplace: ${msg}`)
+        process.exit(1)
+      }
+    })
+
+  marketplace
+    .command('update [skill]')
+    .description('Update installed skills to latest version (all or specific skill)')
+    .option('-m, --marketplace <name>', 'Update from specific marketplace')
+    .action(async (skill?: string, opts?: { marketplace?: string }) => {
+      try {
+        if (skill) {
+          const result = await updateSkill(skill, opts?.marketplace)
+          if (!result.success) {
+            console.error(`Failed to update: ${result.message}`)
+            process.exit(1)
+          }
+          console.log(`✓ ${result.message}`)
+        } else {
+          console.log('Updating all installed skills...')
+          const results = await updateAll()
+          const succeeded = results.filter((r) => r.success)
+          const failed = results.filter((r) => !r.success)
+          console.log(`Updated ${succeeded.length} skill(s)`)
+          for (const r of failed) {
+            console.warn(`  ⚠ ${r.message}`)
+          }
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error)
+        console.error(`Failed to update: ${msg}`)
         process.exit(1)
       }
     })

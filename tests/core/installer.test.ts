@@ -1,12 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { VALID_SKILL_MD } from '../__fixtures__/skill-md-samples.js'
-import { makeGitHubFile, makeGitHubDir } from '../__fixtures__/github-responses.js'
 
 // Mock fs and os before importing the module under test
 vi.mock('node:fs/promises', () => ({
   default: {
     mkdir: vi.fn().mockResolvedValue(undefined),
-    writeFile: vi.fn().mockResolvedValue(undefined),
+    copyFile: vi.fn().mockResolvedValue(undefined),
     readFile: vi.fn().mockResolvedValue(VALID_SKILL_MD),
     readdir: vi.fn().mockResolvedValue([]),
     rm: vi.fn().mockResolvedValue(undefined),
@@ -18,92 +17,83 @@ vi.mock('node:os', () => ({
   default: { homedir: () => '/mock-home' },
 }))
 
-vi.mock('../../src/core/github.js', () => ({
-  downloadSkillDir: vi.fn().mockResolvedValue([]),
-  downloadFile: vi.fn().mockResolvedValue('file content'),
-  getSkillMd: vi.fn(),
+// Mock cloneOrUpdate to return a deterministic cache path
+vi.mock('../../src/core/git.js', () => ({
+  cloneOrUpdate: vi.fn().mockResolvedValue('/git-cache/test-skills'),
+  normalizeGitUrl: vi.fn((url: string) => url),
+  getCachePathForUrl: vi.fn(() => '/git-cache/test-skills'),
+  isGitInstalled: vi.fn().mockResolvedValue(true),
+  getGitCacheDir: vi.fn(() => '/git-cache'),
+}))
+
+vi.mock('../../src/core/skill-md.js', () => ({
   parseFrontmatter: vi.fn(),
 }))
 
 import fs from 'node:fs/promises'
 import { installSkill, uninstallSkill, listInstalled } from '../../src/core/installer.js'
-import { downloadSkillDir, downloadFile } from '../../src/core/github.js'
-import { parseFrontmatter } from '../../src/core/github.js'
+import { cloneOrUpdate } from '../../src/core/git.js'
+import { parseFrontmatter } from '../../src/core/skill-md.js'
 
 const source = { owner: 'test', repo: 'skills' }
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(cloneOrUpdate).mockResolvedValue('/git-cache/test-skills')
 })
 
 // --- installSkill ---
 
 describe('installSkill', () => {
-  it('creates directory, downloads files, writes them, and returns InstalledSkill', async () => {
-    const files = [makeGitHubFile('SKILL.md', 'https://example.com/SKILL.md')]
-    vi.mocked(downloadSkillDir).mockResolvedValue(files)
-    vi.mocked(downloadFile).mockResolvedValue(VALID_SKILL_MD)
+  it('clones the source repo and copies the skill directory', async () => {
+    vi.mocked(fs.readdir).mockResolvedValue([
+      { name: 'SKILL.md', isDirectory: () => false },
+    ] as any)
     vi.mocked(fs.readFile).mockResolvedValue(VALID_SKILL_MD)
     vi.mocked(parseFrontmatter).mockReturnValue({ name: 'pdf', description: 'PDF skill' })
 
     const result = await installSkill(source, 'pdf', '/install-dir')
 
+    expect(cloneOrUpdate).toHaveBeenCalledWith(
+      'https://github.com/test/skills.git',
+      { branch: undefined, shallow: true },
+    )
     expect(fs.mkdir).toHaveBeenCalledWith('/install-dir/pdf', { recursive: true })
-    expect(downloadFile).toHaveBeenCalledWith('https://example.com/SKILL.md', undefined)
-    expect(fs.writeFile).toHaveBeenCalledWith('/install-dir/pdf/SKILL.md', VALID_SKILL_MD, 'utf-8')
     expect(result.name).toBe('pdf')
     expect(result.path).toBe('/install-dir/pdf')
     expect(result.meta.name).toBe('pdf')
   })
 
-  it('handles subdirectories by recursively downloading', async () => {
-    const topFiles = [
-      makeGitHubFile('SKILL.md', 'https://example.com/SKILL.md'),
-      makeGitHubDir('scripts'),
-    ]
-    const subFiles = [makeGitHubFile('run.sh', 'https://example.com/run.sh')]
-
-    vi.mocked(downloadSkillDir)
-      .mockResolvedValueOnce(topFiles)
-      .mockResolvedValueOnce(subFiles)
-    vi.mocked(downloadFile).mockResolvedValue('content')
-    vi.mocked(fs.readFile).mockResolvedValue(VALID_SKILL_MD)
-    vi.mocked(parseFrontmatter).mockReturnValue({ name: 'pdf', description: 'PDF skill' })
-
-    await installSkill(source, 'pdf', '/install-dir')
-
-    expect(fs.mkdir).toHaveBeenCalledWith('/install-dir/pdf/scripts', { recursive: true })
-    expect(downloadSkillDir).toHaveBeenCalledTimes(2)
-  })
-
-  it('downloads a nested remote skill path into a flat local skill directory', async () => {
-    const files = [makeGitHubFile('SKILL.md', 'https://example.com/SKILL.md')]
-    vi.mocked(downloadSkillDir).mockResolvedValue(files)
-    vi.mocked(downloadFile).mockResolvedValue(VALID_SKILL_MD)
+  it('copies from nested remote skill path', async () => {
+    vi.mocked(fs.readdir).mockResolvedValue([
+      { name: 'SKILL.md', isDirectory: () => false },
+    ] as any)
     vi.mocked(fs.readFile).mockResolvedValue(VALID_SKILL_MD)
     vi.mocked(parseFrontmatter).mockReturnValue({ name: 'pdf', description: 'PDF skill' })
 
     const result = await installSkill(source, 'pdf', '/install-dir', undefined, undefined, 'skills/pdf')
 
-    expect(downloadSkillDir).toHaveBeenCalledWith(source, 'skills/pdf', undefined)
+    // Should copy from cache path + remote path
     expect(fs.mkdir).toHaveBeenCalledWith('/install-dir/pdf', { recursive: true })
     expect(result.path).toBe('/install-dir/pdf')
   })
 
-  it('skips files with null download_url', async () => {
-    const files = [{ name: 'ghost.md', path: 'ghost.md', type: 'file' as const, download_url: null }]
-    vi.mocked(downloadSkillDir).mockResolvedValue(files)
-    vi.mocked(fs.readFile).mockRejectedValue(new Error('not found'))
+  it('passes branch to cloneOrUpdate when source has a branch', async () => {
+    const branchedSource = { owner: 'test', repo: 'skills', branch: 'dev' }
+    vi.mocked(fs.readdir).mockResolvedValue([] as any)
+    vi.mocked(fs.readFile).mockRejectedValue(new Error('ENOENT'))
     vi.mocked(parseFrontmatter).mockReturnValue(null)
 
-    const result = await installSkill(source, 'pdf', '/install-dir')
+    await installSkill(branchedSource, 'pdf', '/install-dir')
 
-    expect(downloadFile).not.toHaveBeenCalled()
-    expect(result.meta).toEqual({ name: 'pdf', description: '' })
+    expect(cloneOrUpdate).toHaveBeenCalledWith(
+      'https://github.com/test/skills.git',
+      { branch: 'dev', shallow: true },
+    )
   })
 
   it('returns fallback meta when SKILL.md is missing', async () => {
-    vi.mocked(downloadSkillDir).mockResolvedValue([])
+    vi.mocked(fs.readdir).mockResolvedValue([] as any)
     vi.mocked(fs.readFile).mockRejectedValue(new Error('ENOENT'))
     vi.mocked(parseFrontmatter).mockReturnValue(null)
 
@@ -112,8 +102,8 @@ describe('installSkill', () => {
     expect(result.meta).toEqual({ name: 'unknown-skill', description: '' })
   })
 
-  it('uses default installDir (~/.claude/skills)', async () => {
-    vi.mocked(downloadSkillDir).mockResolvedValue([])
+  it('uses default installDir (~/.agents/skills)', async () => {
+    vi.mocked(fs.readdir).mockResolvedValue([] as any)
     vi.mocked(fs.readFile).mockRejectedValue(new Error('ENOENT'))
     vi.mocked(parseFrontmatter).mockReturnValue(null)
 
@@ -123,8 +113,24 @@ describe('installSkill', () => {
     expect(result.path).toBe('/mock-home/.agents/skills/pdf')
   })
 
+  it('ignores token parameter — cloneOrUpdate called with plain HTTPS URL', async () => {
+    vi.mocked(fs.readdir).mockResolvedValue([] as any)
+    vi.mocked(fs.readFile).mockRejectedValue(new Error('ENOENT'))
+    vi.mocked(parseFrontmatter).mockReturnValue(null)
+
+    await installSkill(source, 'pdf', '/install-dir', 'ghp_secret_token')
+
+    // Token must NOT appear in the git URL
+    expect(cloneOrUpdate).toHaveBeenCalledWith(
+      'https://github.com/test/skills.git',
+      expect.anything(),
+    )
+    const [url] = vi.mocked(cloneOrUpdate).mock.calls[0]!
+    expect(url).not.toContain('ghp_secret_token')
+  })
+
   it('creates symlinks in other agent directories', async () => {
-    vi.mocked(downloadSkillDir).mockResolvedValue([])
+    vi.mocked(fs.readdir).mockResolvedValue([] as any)
     vi.mocked(fs.readFile).mockRejectedValue(new Error('ENOENT'))
     vi.mocked(parseFrontmatter).mockReturnValue(null)
 
@@ -137,7 +143,7 @@ describe('installSkill', () => {
   })
 
   it('skips symlink for primary installDir', async () => {
-    vi.mocked(downloadSkillDir).mockResolvedValue([])
+    vi.mocked(fs.readdir).mockResolvedValue([] as any)
     vi.mocked(fs.readFile).mockRejectedValue(new Error('ENOENT'))
     vi.mocked(parseFrontmatter).mockReturnValue(null)
 

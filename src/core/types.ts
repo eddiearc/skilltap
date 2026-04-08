@@ -42,7 +42,11 @@ export interface InstalledSkill {
 export interface SourceConfig {
   /** GitHub repo in "owner/repo" format */
   repo: string
-  /** Optional per-source PAT for private repos */
+  /**
+   * @deprecated GitHub PAT is no longer used. Private repos now authenticate
+   * via SSH keys or git credential helpers. This field is kept for config
+   * compatibility but is silently ignored.
+   */
   token?: string
   /** Optional branch override */
   branch?: string
@@ -57,7 +61,11 @@ export interface SkilltapConfig {
   sources: SourceEntry[]
   /** Primary directory to install skills into (default: ~/.claude/skills) */
   installDir?: string
-  /** GitHub personal access token for private repos (global fallback) */
+  /**
+   * @deprecated GitHub PAT is no longer used. Private repos now authenticate
+   * via SSH keys or git credential helpers. This field is kept for config
+   * compatibility but is silently ignored.
+   */
   token?: string
   /** Target agent ids to symlink skills to, e.g. ['cursor', 'codex'] */
   agents?: string[]

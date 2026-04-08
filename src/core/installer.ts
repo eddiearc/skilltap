@@ -3,7 +3,9 @@ import path from 'node:path'
 import os from 'node:os'
 
 import type { TapSource, InstalledSkill } from './types.js'
-import { downloadSkillDir, downloadFile, parseFrontmatter } from './github.js'
+import { parseFrontmatter } from './skill-md.js'
+import { cloneOrUpdate } from './git.js'
+import { tapSourceToGitUrl } from './source-utils.js'
 
 const DEFAULT_INSTALL_DIR = path.join(os.homedir(), '.agents', 'skills')
 
@@ -19,39 +21,48 @@ async function forceSymlink(target: string, linkPath: string): Promise<void> {
   await fs.symlink(target, linkPath)
 }
 
-/** Download and install a skill from a source */
+/** Recursively copy a directory */
+async function copyDir(src: string, dest: string): Promise<void> {
+  await fs.mkdir(dest, { recursive: true })
+  const entries = await fs.readdir(src, { withFileTypes: true })
+
+  for (const entry of entries) {
+    const srcPath = path.join(src, entry.name)
+    const destPath = path.join(dest, entry.name)
+
+    if (entry.isDirectory()) {
+      await copyDir(srcPath, destPath)
+    } else {
+      await fs.copyFile(srcPath, destPath)
+    }
+  }
+}
+
+/** Clone/update a TapSource to local cache and return the cache path */
+async function ensureGitCache(source: TapSource): Promise<string> {
+  const gitUrl = tapSourceToGitUrl(source)
+  return cloneOrUpdate(gitUrl, { branch: source.branch, shallow: true })
+}
+
+/** Download and install a skill from a source using git-cache */
 export async function installSkill(
   source: TapSource,
   skillName: string,
   installDir = DEFAULT_INSTALL_DIR,
-  token?: string,
+  /** @deprecated GitHub PAT is no longer used; private repos authenticate via SSH key / git credential helper */
+  _token?: string,
   symlinkDirs?: string[],
   remotePath = skillName,
 ): Promise<InstalledSkill> {
   const targetDir = path.join(installDir, skillName)
   await ensureDir(targetDir)
 
-  const files = await downloadSkillDir(source, remotePath, token)
+  // Clone or update the git repo to local cache
+  const cachePath = await ensureGitCache(source)
+  const sourceSkillPath = path.join(cachePath, remotePath)
 
-  for (const file of files) {
-    if (file.type === 'file' && file.download_url) {
-      const content = await downloadFile(file.download_url, token)
-      const filePath = path.join(targetDir, file.name)
-      await fs.writeFile(filePath, content, 'utf-8')
-    } else if (file.type === 'dir') {
-      // Recursively download subdirectories
-      const subDir = path.join(targetDir, file.name)
-      await ensureDir(subDir)
-      const subPath = file.path.includes('/') ? file.path : `${remotePath}/${file.name}`
-      const subFiles = await downloadSkillDir(source, subPath, token)
-      for (const subFile of subFiles) {
-        if (subFile.type === 'file' && subFile.download_url) {
-          const content = await downloadFile(subFile.download_url, token)
-          await fs.writeFile(path.join(subDir, subFile.name), content, 'utf-8')
-        }
-      }
-    }
-  }
+  // Copy skill files from git cache
+  await copyDir(sourceSkillPath, targetDir)
 
   // Create symlinks in other agent directories
   if (symlinkDirs?.length) {

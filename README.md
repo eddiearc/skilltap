@@ -2,7 +2,7 @@
 
 One repo = one skill market, even when skills live in nested folders.
 
-Install AI agent skills from GitHub repos — with multi-agent support.
+Install AI agent skills from any git repository — with multi-agent support.
 
 [中文文档](./README.zh-CN.md) | English
 
@@ -18,7 +18,9 @@ npm install @eddiearc/skilltap
 
 ## Concept
 
-A **tap** is a GitHub repository containing AI agent skills (directories with `SKILL.md`). `skilltap` recursively discovers skill folders, so it works with both flat repos and nested layouts such as `skills/pdf/SKILL.md`.
+A **tap** is a repository containing AI agent skills (directories with `SKILL.md`). `skilltap` recursively discovers skill folders, so it works with both flat repos and nested layouts such as `skills/pdf/SKILL.md`.
+
+Taps can live anywhere — GitHub, GitLab, Bitbucket, Gitea, or any self-hosted git server. Private repos authenticate automatically via your existing SSH keys or credential helper, with no extra token configuration needed.
 
 ```
 github.com/anthropics/skills/       <- this is a tap
@@ -37,60 +39,113 @@ Skills are installed to `~/.agents/skills/` (universal directory) by default, an
 
 ## CLI Usage
 
-### Source Management
+### Marketplace (Recommended)
+
+Marketplaces are git repositories or local directories that act as skill sources. Unlike the legacy source system, they work with any git hosting platform, authenticate via your existing SSH keys, and avoid GitHub REST API rate limits.
+
+#### Add a marketplace
 
 ```bash
-# Add a skill source
+# GitHub (HTTPS)
+skilltap marketplace add anthropics https://github.com/anthropics/skills
+
+# GitHub (SSH) — uses your SSH key automatically for private repos
+skilltap marketplace add my-private git@github.com:myorg/private-skills.git
+
+# GitLab (self-hosted)
+skilltap marketplace add corp https://gitlab.mycompany.com/team/skills
+
+# Bitbucket
+skilltap marketplace add bb https://bitbucket.org/owner/skills-repo
+
+# Local directory
+skilltap marketplace add local /path/to/my/skills
+
+# Specific branch
+skilltap marketplace add staging https://github.com/anthropics/skills --branch dev
+
+# Skills live in a subdirectory of the repo
+skilltap marketplace add mono https://github.com/owner/monorepo --scan-path .agents/skills
+```
+
+#### Manage marketplaces
+
+```bash
+# List configured marketplaces
+skilltap marketplace list
+
+# Remove a marketplace
+skilltap marketplace remove anthropics
+
+# Refresh the skill cache for a marketplace
+skilltap marketplace refresh
+skilltap marketplace refresh anthropics   # specific marketplace only
+```
+
+#### Browse, search, and install
+
+```bash
+# Browse all marketplaces
+skilltap browse
+
+# Browse a specific marketplace
+skilltap browse anthropics
+
+# Search across all marketplaces
+skilltap search pdf
+
+# Search within a specific marketplace
+skilltap search pdf --marketplace anthropics
+
+# Install from any marketplace
+skilltap install pdf
+
+# Install from a specific marketplace
+skilltap install pdf --marketplace anthropics
+skilltap install pdf@anthropics              # equivalent shorthand
+
+# List installed skills
+skilltap list
+skilltap list --verbose   # includes marketplace info
+
+# Uninstall
+skilltap uninstall pdf@anthropics   # preferred: unambiguous when skill is from multiple marketplaces
+skilltap uninstall pdf              # removes the first record when only one marketplace has it
+```
+
+### Source Management (Legacy — Deprecated)
+
+> **Deprecated (v1.0.0):** These commands are kept for backwards compatibility but print a deprecation warning. The underlying GitHub REST API implementation has been removed. Use the `marketplace` subcommands instead.
+
+```bash
+# Add a skill source (deprecated — use: skilltap marketplace add <name> <repo>)
 skilltap add anthropics/skills
 
-# Add a private source with a per-source token
-skilltap add company/private-skills --token ghp_xxx
+# Add a private source (--token is ignored; use SSH key or credential helper)
+skilltap add company/private-skills
 
 # Remove a source
 skilltap remove anthropics/skills
 
 # List configured sources
 skilltap sources
-```
 
-### Browse & Search
-
-```bash
-# Search for skills
-skilltap search pdf
-```
-
-### Install & Uninstall
-
-```bash
-# Install to ~/.agents/skills/ only
-skilltap install pdf
-
-# Install + symlink to all detected agents
-skilltap install pdf -g
-
-# Install + symlink to specific agents
-skilltap install pdf -a claude-code cursor codex
-
-# Install + symlink to custom directories
-skilltap install pdf -d ~/my-project/.claude/skills
-
-# Install from a specific source (when multiple sources have the same skill)
-skilltap install pdf --from anthropics/skills
-
-# Uninstall
-skilltap uninstall pdf
-skilltap uninstall pdf -g    # also remove symlinks from all agents
-```
-
-### Update
-
-```bash
-# Update all installed skills
+# Update all skills from legacy sources
 skilltap update
+skilltap update -g   # also refresh symlinks for all detected agents
+```
 
-# Update + refresh symlinks for all agents
-skilltap update -g
+### Agent symlinks (SDK)
+
+CLI marketplace install currently writes to `~/.agents/skills/` only. To symlink skills into agent directories, use the SDK:
+
+```typescript
+const st = new Skilltap({
+  sources: ['anthropics/skills'],
+  agents: ['claude-code', 'cursor'],       // symlink to detected agent dirs
+  dirs: ['~/my-project/.claude/skills'],   // or custom dirs
+})
+await st.install('pdf')
 ```
 
 ### Multi-Agent Support
@@ -131,17 +186,22 @@ This matches the current `anthropics/skills` layout, where most skills live unde
 
 ### Conflict Resolution
 
-When multiple sources have a skill with the same name:
+**Marketplace system:** When multiple marketplaces have a skill with the same name, specify the marketplace:
 
 ```bash
 $ skilltap install pdf
-# Multiple skills found for "pdf":
-#   - anthropics/skills
-#   - my-company/skills
-# Use --from to specify: skilltap install pdf --from <owner/repo>
+# Multiple skills found: pdf@anthropics, pdf@corp
+# Specify which marketplace to use:
+#   skilltap install pdf --marketplace <name>
 
-$ skilltap install pdf --from my-company/skills
-# Installed: pdf → ~/.agents/skills/pdf
+$ skilltap install pdf@corp
+# ✓ Successfully installed skill "pdf" from marketplace "corp"
+```
+
+**Legacy source system:** Use `--from` in the SDK or specify the source in the `Skilltap` constructor:
+
+```typescript
+await st.install('pdf', { from: 'my-company/skills' })
 ```
 
 ## SDK Usage
@@ -151,10 +211,9 @@ import { Skilltap } from '@eddiearc/skilltap'
 
 const st = new Skilltap({
   sources: [
-    'anthropics/skills',                                    // public source (string)
-    { repo: 'company/private-skills', token: 'ghp_xxx' },  // private source with per-source token
+    'anthropics/skills',              // public source (string)
+    { repo: 'company/private-skills' }, // private source — auth via SSH key / credential helper
   ],
-  token: 'ghp_fallback',            // optional, global fallback token
   agents: ['claude-code', 'cursor'], // optional, symlink targets
 })
 
@@ -183,13 +242,21 @@ const agents = await detectInstalledAgents()
 
 ## Authentication
 
-For each source, tokens are resolved in this order:
+### Marketplace (git-based)
 
-1. **Per-source token** (from `SourceConfig.token`)
-2. **Global token** (from `SkilltapConfig.token` or `~/.skilltap/config.json`)
-3. **Auto-detected credentials** (`gh` CLI config or `GITHUB_TOKEN` env var)
+Marketplaces authenticate through git itself. No token configuration is required:
 
-For public repos, no auth is needed.
+- **Public repos**: no auth needed
+- **Private repos via SSH**: use an SSH URL (`git@host:owner/repo.git`) — your existing SSH key and agent handle authentication transparently
+- **Private repos via HTTPS**: git uses your configured credential helper (e.g. macOS Keychain, `git-credential-store`)
+
+### Legacy Source System (GitHub API)
+
+> **Breaking change (v1.0.0):** `SkilltapConfig.token`, `SourceConfig.token`, and the `token` parameter of `installSkill()` are deprecated and **ignored** in the git-clone-based path. Private repos authenticate via SSH keys or git credential helpers, not API tokens.
+>
+> **Migration:** if you previously passed a token, configure SSH key or HTTPS credentials for `github.com` instead (e.g. `gh auth login`, macOS Keychain, or `git-credential-store`).
+
+The legacy `add`/`remove`/`sources`/`update` commands still work but print a deprecation warning and will be removed in a future major version. Use the `marketplace` subcommands instead.
 
 ## Config
 
@@ -199,10 +266,9 @@ Config is stored at `~/.skilltap/config.json`:
 {
   "sources": [
     "anthropics/skills",
-    { "repo": "company/private-skills", "token": "ghp_xxx" }
+    { "repo": "company/private-skills" }
   ],
-  "installDir": "~/.agents/skills",
-  "token": "ghp_global_fallback"
+  "installDir": "~/.agents/skills"
 }
 ```
 
