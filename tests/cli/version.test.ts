@@ -4,6 +4,6 @@ import { getCliVersion } from '../../src/cli/version.js'
 
 describe('getCliVersion', () => {
   it('reads the CLI version from package.json', async () => {
-    await expect(getCliVersion()).resolves.toBe('0.7.0')
+    await expect(getCliVersion()).resolves.toBe('0.7.1')
   })
 })
