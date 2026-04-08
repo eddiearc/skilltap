@@ -268,6 +268,59 @@ export async function getMarketplaceManifest(
   return manifest
 }
 
+/** Derive a filesystem-safe cache key from a marketplace name */
+function safeCacheKey(name: string): string {
+  return name.replace(/[/\\]/g, '-')
+}
+
+/** Get or cache manifest for a Marketplace object (no config lookup) */
+export async function getManifestForMarketplace(
+  marketplace: Marketplace,
+  options: { refresh?: boolean } = {},
+): Promise<MarketplaceManifest> {
+  await ensureConfigDir()
+  const cachePath = path.join(getCacheDir(), `${safeCacheKey(marketplace.name)}.json`)
+  const { refresh } = options
+
+  // refresh === true  → always bypass cache, force git pull
+  // refresh === false → always use cache, never pull (even if expired)
+  // refresh === undefined → use cache if within TTL, refresh otherwise
+  if (refresh !== true) {
+    try {
+      const cached = await fs.readFile(cachePath, 'utf-8')
+      const manifest = JSON.parse(cached) as MarketplaceManifest
+
+      if (refresh === false) {
+        // Never refresh — return whatever is cached
+        return manifest
+      }
+
+      // Default: use cache if within 1-hour TTL
+      const cacheAge = Date.now() - new Date(manifest.updatedAt).getTime()
+      if (cacheAge < 60 * 60 * 1000) {
+        return manifest
+      }
+    } catch {
+      // Cache miss or invalid — must discover even if refresh === false
+    }
+  }
+
+  // Discover skills from marketplace (triggers cloneOrUpdate for git sources)
+  const skills = await discoverSkillsFromMarketplace(marketplace)
+
+  const manifest: MarketplaceManifest = {
+    name: marketplace.name,
+    version: '1.0',
+    skills,
+    updatedAt: new Date().toISOString(),
+  }
+
+  // Save to cache
+  await fs.writeFile(cachePath, JSON.stringify(manifest, null, 2), 'utf-8')
+
+  return manifest
+}
+
 /** Search for a skill across all marketplaces */
 export async function searchSkill(
   skillName: string,

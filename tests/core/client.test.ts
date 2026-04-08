@@ -25,7 +25,12 @@ vi.mock('../../src/core/source-utils.js', () => ({
 }))
 
 vi.mock('../../src/core/marketplace/manager.js', () => ({
-  discoverSkillsFromMarketplace: vi.fn().mockResolvedValue([]),
+  getManifestForMarketplace: vi.fn().mockResolvedValue({
+    name: 'mock',
+    version: '1.0',
+    skills: [],
+    updatedAt: new Date().toISOString(),
+  }),
 }))
 
 vi.mock('../../src/core/agents.js', () => ({
@@ -44,7 +49,7 @@ vi.mock('../../src/core/installer.js', () => ({
 }))
 
 import { Skilltap } from '../../src/core/client.js'
-import { discoverSkillsFromMarketplace } from '../../src/core/marketplace/manager.js'
+import { getManifestForMarketplace } from '../../src/core/marketplace/manager.js'
 import { installSkill, uninstallSkill, listInstalled } from '../../src/core/installer.js'
 import { resolveAgentDirs } from '../../src/core/agents.js'
 
@@ -52,6 +57,13 @@ type SkillEntry = { name: string; description: string; path: string; source: obj
 
 const makeSkillEntry = (name: string, description: string, path: string): SkillEntry => ({
   name, description, path, source: {},
+})
+
+const makeManifest = (skills: SkillEntry[]) => ({
+  name: 'mock',
+  version: '1.0',
+  skills,
+  updatedAt: new Date().toISOString(),
 })
 
 beforeEach(() => {
@@ -74,14 +86,14 @@ describe('constructor', () => {
 
 describe('available', () => {
   it('aggregates skills from multiple sources', async () => {
-    vi.mocked(discoverSkillsFromMarketplace)
-      .mockResolvedValueOnce([
+    vi.mocked(getManifestForMarketplace)
+      .mockResolvedValueOnce(makeManifest([
         makeSkillEntry('pdf', 'PDF', 'skills/pdf'),
         makeSkillEntry('xlsx', 'Excel', 'skills/xlsx'),
-      ])
-      .mockResolvedValueOnce([
+      ]))
+      .mockResolvedValueOnce(makeManifest([
         makeSkillEntry('browser', 'Browser', 'browser'),
-      ])
+      ]))
 
     const st = new Skilltap({ sources: ['org1/skills', 'org2/skills'] })
     const skills = await st.available()
@@ -91,7 +103,7 @@ describe('available', () => {
   })
 
   it('returns empty when a source has no discovered skills', async () => {
-    vi.mocked(discoverSkillsFromMarketplace).mockResolvedValue([])
+    vi.mocked(getManifestForMarketplace).mockResolvedValue(makeManifest([]))
 
     const st = new Skilltap({ sources: ['test/skills'] })
     const skills = await st.available()
@@ -106,8 +118,8 @@ describe('available', () => {
     expect(skills).toEqual([])
   })
 
-  it('propagates clone/auth errors from discoverSkillsFromMarketplace', async () => {
-    vi.mocked(discoverSkillsFromMarketplace).mockRejectedValue(
+  it('propagates clone/auth errors from getManifestForMarketplace', async () => {
+    vi.mocked(getManifestForMarketplace).mockRejectedValue(
       new Error('Authentication failed: could not clone git@github.com:org/private.git'),
     )
 
@@ -122,11 +134,11 @@ describe('available', () => {
 
 describe('search', () => {
   const setupAvailable = () => {
-    vi.mocked(discoverSkillsFromMarketplace).mockResolvedValue([
+    vi.mocked(getManifestForMarketplace).mockResolvedValue(makeManifest([
       makeSkillEntry('pdf', 'Read PDF files', 'skills/pdf'),
       makeSkillEntry('xlsx', 'Read Excel spreadsheets', 'skills/xlsx'),
       makeSkillEntry('browser', 'Browser automation', 'browser'),
-    ])
+    ]))
   }
 
   it('matches by name (case-insensitive)', async () => {
@@ -168,11 +180,11 @@ describe('search', () => {
 
 describe('install', () => {
   it('installs from the first source that has the skill and passes the nested path through', async () => {
-    vi.mocked(discoverSkillsFromMarketplace)
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
+    vi.mocked(getManifestForMarketplace)
+      .mockResolvedValueOnce(makeManifest([]))
+      .mockResolvedValueOnce(makeManifest([
         makeSkillEntry('pdf', 'PDF skill', 'skills/pdf'),
-      ])
+      ]))
     vi.mocked(installSkill).mockResolvedValue({
       name: 'pdf',
       meta: { name: 'pdf', description: 'PDF skill' },
@@ -190,7 +202,7 @@ describe('install', () => {
   })
 
   it('throws when skill not found in any source', async () => {
-    vi.mocked(discoverSkillsFromMarketplace).mockResolvedValue([])
+    vi.mocked(getManifestForMarketplace).mockResolvedValue(makeManifest([]))
 
     const st = new Skilltap({ sources: ['test/skills'] })
 
@@ -198,9 +210,9 @@ describe('install', () => {
   })
 
   it('throws SkillConflictError when multiple sources have the same skill', async () => {
-    vi.mocked(discoverSkillsFromMarketplace).mockResolvedValue([
+    vi.mocked(getManifestForMarketplace).mockResolvedValue(makeManifest([
       makeSkillEntry('pdf', 'PDF skill', 'skills/pdf'),
-    ])
+    ]))
 
     const st = new Skilltap({ sources: ['org1/skills', 'org2/skills'] })
 
@@ -210,9 +222,9 @@ describe('install', () => {
   })
 
   it('installs from specified source with { from } option', async () => {
-    vi.mocked(discoverSkillsFromMarketplace).mockResolvedValue([
+    vi.mocked(getManifestForMarketplace).mockResolvedValue(makeManifest([
       makeSkillEntry('pdf', 'PDF skill', 'skills/pdf'),
-    ])
+    ]))
     vi.mocked(installSkill).mockResolvedValue({
       name: 'pdf',
       meta: { name: 'pdf', description: 'PDF skill' },
@@ -260,10 +272,10 @@ describe('update', () => {
       { name: 'pdf', meta: { name: 'pdf', description: '' }, path: '/skills/pdf' },
       { name: 'xlsx', meta: { name: 'xlsx', description: '' }, path: '/skills/xlsx' },
     ])
-    vi.mocked(discoverSkillsFromMarketplace).mockResolvedValue([
+    vi.mocked(getManifestForMarketplace).mockResolvedValue(makeManifest([
       makeSkillEntry('pdf', '', 'skills/pdf'),
       makeSkillEntry('xlsx', '', 'skills/xlsx'),
-    ])
+    ]))
 
     const st = new Skilltap({ sources: ['test/skills'] })
     const updated = await st.update()
@@ -276,7 +288,7 @@ describe('update', () => {
       { name: 'pdf', meta: { name: 'pdf', description: '' }, path: '/skills/pdf' },
       { name: 'broken', meta: { name: 'broken', description: '' }, path: '/skills/broken' },
     ])
-    vi.mocked(discoverSkillsFromMarketplace).mockResolvedValue([])
+    vi.mocked(getManifestForMarketplace).mockResolvedValue(makeManifest([]))
 
     const st = new Skilltap({ sources: ['test/skills'] })
     const updated = await st.update()
@@ -294,13 +306,101 @@ describe('update', () => {
   })
 })
 
+// --- cache behavior ---
+
+describe('cache behavior', () => {
+  it('available() passes refresh option to getManifestForMarketplace', async () => {
+    vi.mocked(getManifestForMarketplace).mockResolvedValue(makeManifest([
+      makeSkillEntry('pdf', 'PDF', 'skills/pdf'),
+    ]))
+
+    const st = new Skilltap({ sources: ['test/skills'] })
+
+    // default (undefined refresh)
+    await st.available()
+    expect(getManifestForMarketplace).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'test/skills' }),
+      { refresh: undefined },
+    )
+  })
+
+  it('available({ refresh: false }) passes refresh: false — cache only', async () => {
+    vi.mocked(getManifestForMarketplace).mockResolvedValue(makeManifest([
+      makeSkillEntry('pdf', 'PDF', 'skills/pdf'),
+    ]))
+
+    const st = new Skilltap({ sources: ['test/skills'] })
+    await st.available({ refresh: false })
+
+    expect(getManifestForMarketplace).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'test/skills' }),
+      { refresh: false },
+    )
+  })
+
+  it('available({ refresh: true }) passes refresh: true — force bypass', async () => {
+    vi.mocked(getManifestForMarketplace).mockResolvedValue(makeManifest([
+      makeSkillEntry('pdf', 'PDF', 'skills/pdf'),
+    ]))
+
+    const st = new Skilltap({ sources: ['test/skills'] })
+    await st.available({ refresh: true })
+
+    expect(getManifestForMarketplace).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'test/skills' }),
+      { refresh: true },
+    )
+  })
+
+  it('search() forwards refresh option to available()', async () => {
+    vi.mocked(getManifestForMarketplace).mockResolvedValue(makeManifest([
+      makeSkillEntry('pdf', 'Read PDF files', 'skills/pdf'),
+    ]))
+
+    const st = new Skilltap({ sources: ['test/skills'] })
+    await st.search('pdf', { refresh: true })
+
+    expect(getManifestForMarketplace).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'test/skills' }),
+      { refresh: true },
+    )
+  })
+
+  it('available() fetches multiple sources in parallel', async () => {
+    const callOrder: string[] = []
+    vi.mocked(getManifestForMarketplace).mockImplementation(async (marketplace) => {
+      callOrder.push(`start:${marketplace.name}`)
+      // Simulate async work
+      await new Promise((r) => setTimeout(r, 10))
+      callOrder.push(`end:${marketplace.name}`)
+      return makeManifest([makeSkillEntry('skill', 'desc', 'path')])
+    })
+
+    const st = new Skilltap({ sources: ['org1/skills', 'org2/skills', 'org3/skills'] })
+    await st.available()
+
+    // All three sources should be called
+    expect(getManifestForMarketplace).toHaveBeenCalledTimes(3)
+
+    // Verify parallel execution: all starts should come before all ends
+    const starts = callOrder.filter((e) => e.startsWith('start:'))
+    const ends = callOrder.filter((e) => e.startsWith('end:'))
+    expect(starts).toHaveLength(3)
+    expect(ends).toHaveLength(3)
+    // In parallel, all starts should appear before any end
+    const lastStartIdx = callOrder.lastIndexOf(starts[starts.length - 1])
+    const firstEndIdx = callOrder.indexOf(ends[0])
+    expect(lastStartIdx).toBeLessThan(firstEndIdx)
+  })
+})
+
 // --- agents & dirs ---
 
 describe('agents config', () => {
   it('passes resolved agent dirs as symlinkDirs to installSkill', async () => {
-    vi.mocked(discoverSkillsFromMarketplace).mockResolvedValue([
+    vi.mocked(getManifestForMarketplace).mockResolvedValue(makeManifest([
       makeSkillEntry('pdf', 'PDF skill', 'skills/pdf'),
-    ])
+    ]))
 
     const st = new Skilltap({ sources: ['test/skills'], agents: ['claude-code', 'cursor'] })
     await st.install('pdf')
@@ -323,9 +423,9 @@ describe('agents config', () => {
   })
 
   it('does not pass symlinkDirs when no agents configured', async () => {
-    vi.mocked(discoverSkillsFromMarketplace).mockResolvedValue([
+    vi.mocked(getManifestForMarketplace).mockResolvedValue(makeManifest([
       makeSkillEntry('pdf', 'PDF skill', 'skills/pdf'),
-    ])
+    ]))
 
     const st = new Skilltap({ sources: ['test/skills'] })
     await st.install('pdf')
@@ -338,9 +438,9 @@ describe('agents config', () => {
 
 describe('dirs config', () => {
   it('passes custom dirs as symlinkDirs', async () => {
-    vi.mocked(discoverSkillsFromMarketplace).mockResolvedValue([
+    vi.mocked(getManifestForMarketplace).mockResolvedValue(makeManifest([
       makeSkillEntry('pdf', 'PDF skill', 'skills/pdf'),
-    ])
+    ]))
 
     const st = new Skilltap({ sources: ['test/skills'], dirs: ['/custom/skills'] })
     await st.install('pdf')
@@ -351,9 +451,9 @@ describe('dirs config', () => {
   })
 
   it('merges agents and dirs, deduplicates', async () => {
-    vi.mocked(discoverSkillsFromMarketplace).mockResolvedValue([
+    vi.mocked(getManifestForMarketplace).mockResolvedValue(makeManifest([
       makeSkillEntry('pdf', 'PDF skill', 'skills/pdf'),
-    ])
+    ]))
 
     const st = new Skilltap({
       sources: ['test/skills'],
@@ -385,9 +485,9 @@ describe('source config', () => {
   })
 
   it('ignores deprecated token — installSkill called with undefined token', async () => {
-    vi.mocked(discoverSkillsFromMarketplace).mockResolvedValue([
+    vi.mocked(getManifestForMarketplace).mockResolvedValue(makeManifest([
       makeSkillEntry('pdf', 'PDF skill', 'skills/pdf'),
-    ])
+    ]))
 
     // token at both global and per-source level
     const st = new Skilltap({

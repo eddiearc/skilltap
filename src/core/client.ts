@@ -8,8 +8,8 @@ import type {
 } from './types.js'
 import { SkillConflictError } from './types.js'
 import { parseSource, parseSourceEntry, tapSourceToGitUrl } from './source-utils.js'
-import { discoverSkillsFromMarketplace } from './marketplace/manager.js'
-import type { Marketplace, SkillEntry } from './marketplace/types.js'
+import { getManifestForMarketplace } from './marketplace/manager.js'
+import type { SkillEntry } from './marketplace/types.js'
 import { installSkill, uninstallSkill, listInstalled } from './installer.js'
 import { resolveAgentDirs } from './agents.js'
 
@@ -54,10 +54,10 @@ export class Skilltap {
   }
 
   /** Build a temporary Marketplace descriptor from a TapSource */
-  private sourceToMarketplace(source: TapSource): Marketplace {
+  private sourceToMarketplace(source: TapSource) {
     return {
       name: `${source.owner}/${source.repo}`,
-      type: 'git',
+      type: 'git' as const,
       gitUrl: tapSourceToGitUrl(source),
       branch: source.branch,
       addedAt: new Date().toISOString(),
@@ -66,32 +66,28 @@ export class Skilltap {
 
   private async discoverSourceSkills(
     source: TapSource,
-    _entry: SourceEntry | undefined,
+    opts?: { refresh?: boolean },
   ): Promise<DiscoveredSkill[]> {
     const marketplace = this.sourceToMarketplace(source)
-    const entries = await discoverSkillsFromMarketplace(marketplace)
-    return entries.map(toDiscoveredSkill)
+
+    const manifest = await getManifestForMarketplace(marketplace, { refresh: opts?.refresh })
+    return manifest.skills.map(toDiscoveredSkill)
   }
 
   /** List all available skills from all sources */
-  async available(): Promise<RemoteSkill[]> {
-    const skills: RemoteSkill[] = []
-
-    for (let i = 0; i < this.sources.length; i++) {
-      const source = this.sources[i]
-      const discovered = await this.discoverSourceSkills(source, this.entries[i])
-
-      for (const skill of discovered) {
-        skills.push({ ...skill, source })
-      }
-    }
-
-    return skills
+  async available(opts?: { refresh?: boolean }): Promise<RemoteSkill[]> {
+    const results = await Promise.all(
+      this.sources.map(async (source) => {
+        const discovered = await this.discoverSourceSkills(source, opts)
+        return discovered.map((skill) => ({ ...skill, source }))
+      }),
+    )
+    return results.flat()
   }
 
   /** Search skills by keyword across all sources */
-  async search(keyword: string): Promise<RemoteSkill[]> {
-    const all = await this.available()
+  async search(keyword: string, opts?: { refresh?: boolean }): Promise<RemoteSkill[]> {
+    const all = await this.available(opts)
     const kw = keyword.toLowerCase()
     return all.filter(
       (s) =>
@@ -116,7 +112,7 @@ export class Skilltap {
     // Find all sources that have this skill
     const matches: { source: TapSource; entry: SourceEntry; skill: DiscoveredSkill }[] = []
     for (let i = 0; i < this.sources.length; i++) {
-      const discovered = await this.discoverSourceSkills(this.sources[i], this.entries[i])
+      const discovered = await this.discoverSourceSkills(this.sources[i])
       const match = discovered.find((skill) => skill.name === skillName)
       if (match) matches.push({ source: this.sources[i], entry: this.entries[i], skill: match })
     }
