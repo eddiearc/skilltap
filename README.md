@@ -156,8 +156,9 @@ skilltap agents
 #   ✓ Claude Code (claude-code) → ~/.claude/skills
 #   ✓ Cursor (cursor) → ~/.cursor/skills
 #   ✓ Codex (codex) → ~/.codex/skills
+#   ✓ Kimi Code (kimi) → ~/.kimi-code/skills
 #   · Windsurf (windsurf) → ~/.windsurf/skills
-#   3 agent(s) detected
+#   4 agent(s) detected
 ```
 
 Skills are stored as real files in `~/.agents/skills/` and symlinked to each agent's directory:
@@ -167,9 +168,10 @@ Skills are stored as real files in `~/.agents/skills/` and symlinked to each age
 ~/.claude/skills/pdf           <- symlink
 ~/.cursor/skills/pdf           <- symlink
 ~/.codex/skills/pdf            <- symlink
+~/.kimi-code/skills/pdf        <- symlink
 ```
 
-Supported agents: Claude Code, Codex, Cursor, Windsurf, GitHub Copilot, Gemini CLI, Cline, Roo Code, Amp, Augment.
+Supported agents: Claude Code, Codex, Kimi Code, Cursor, Windsurf, GitHub Copilot, Gemini CLI, Cline, Roo Code, Amp, Augment.
 
 ## Skill Discovery
 
