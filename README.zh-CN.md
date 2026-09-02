@@ -70,7 +70,7 @@ skilltap install pdf
 skilltap install pdf -g
 
 # 安装 + 软链接到指定 Agent
-skilltap install pdf -a claude-code cursor codex
+skilltap install pdf -a claude-code cursor codex kimi
 
 # 安装 + 软链接到自定义目录
 skilltap install pdf -d ~/my-project/.claude/skills
@@ -101,8 +101,9 @@ skilltap agents
 #   ✓ Claude Code (claude-code) → ~/.claude/skills
 #   ✓ Cursor (cursor) → ~/.cursor/skills
 #   ✓ Codex (codex) → ~/.codex/skills
+#   ✓ Kimi Code (kimi) → ~/.kimi-code/skills
 #   · Windsurf (windsurf) → ~/.windsurf/skills
-#   3 agent(s) detected
+#   4 agent(s) detected
 ```
 
 技能以实体文件存储在 `~/.agents/skills/`，通过软链接分发到各 Agent 目录：
@@ -112,9 +113,10 @@ skilltap agents
 ~/.claude/skills/pdf           <- 软链接
 ~/.cursor/skills/pdf           <- 软链接
 ~/.codex/skills/pdf            <- 软链接
+~/.kimi-code/skills/pdf        <- 软链接
 ```
 
-支持的 Agent：Claude Code、Codex、Cursor、Windsurf、GitHub Copilot、Gemini CLI、Cline、Roo Code、Amp、Augment。
+支持的 Agent：Claude Code、Codex、Kimi Code、Cursor、Windsurf、GitHub Copilot、Gemini CLI、Cline、Roo Code、Amp、Augment。
 
 ## 技能发现规则
 

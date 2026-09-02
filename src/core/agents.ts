@@ -30,6 +30,12 @@ export const AGENTS: AgentTarget[] = [
     globalDir: path.join(home, '.codex', 'skills'),
   },
   {
+    id: 'kimi',
+    name: 'Kimi Code',
+    projectDir: '.kimi-code/skills',
+    globalDir: path.join(home, '.kimi-code', 'skills'),
+  },
+  {
     id: 'cursor',
     name: 'Cursor',
     projectDir: '.cursor/skills',
